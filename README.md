@@ -47,3 +47,11 @@ npm run build   # прод-сборка
 ## Деплой
 
 Авто-деплой при push в `main` (Vercel). Вручную: `npx vercel --prod`.
+
+## Участие
+
+PR и issue приветствуются. Для локального запуска нужен свой проект Supabase: создай его, скопируй `.env.example` в `.env` и подставь URL и публичный ключ (см. «Разработка»). Боевые ключи в репозитории не хранятся. Перед PR прогони `npm run check && npm run lint && npm run build`.
+
+## Лицензия
+
+BSD 3-Clause, см. [LICENSE](LICENSE).

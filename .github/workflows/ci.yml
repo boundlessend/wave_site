@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
 
+# токен только на чтение: воркфлоу (в т.ч. из форков) ничего не изменит
+permissions:
+  contents: read
+
 jobs:
   check:
     runs-on: ubuntu-latest
