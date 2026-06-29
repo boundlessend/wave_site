@@ -49,8 +49,10 @@ export const Scene3D = () => {
 
   const frameloop = isReduced ? 'demand' : visible ? 'always' : 'never'
 
+  // zIndex: -1 - фон строго позади контента, иначе canvas R3F (pointer-events:auto)
+  // перехватывает клики по кнопкам
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none' }}>
+    <div style={{ position: 'fixed', inset: 0, zIndex: -1, pointerEvents: 'none' }}>
       <Canvas
         camera={{ position: [0, 0, 1], fov: 75 }}
         dpr={mobile ? [1, 1] : [1, 1.5]}
