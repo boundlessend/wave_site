@@ -1,6 +1,7 @@
-// Supabase Realtime транспорт. авторитет (host) выбирается по presence:
-// хост = самый ранний присутствующий клиент. при его уходе авторитет берёт
-// следующий по старшинству — у каждого клиента уже есть последний снапшот.
+// Supabase Realtime транспорт. авторитет (host) выбирается по presence.
+// безопасность: все broadcast-сообщения и presence подписаны HMAC секретом комнаты.
+// секрет приходит из ссылки-приглашения (hash) и НЕ передаётся по сети —
+// чужой, знающий лишь код комнаты, не сможет подделать состояние/действия/host.
 import { createClient } from '@supabase/supabase-js'
 import type { ConnStatus, Transport } from './transport.ts'
 import { reduce, initialState, type Action } from '../game/engine.ts'
@@ -14,11 +15,11 @@ export const supabaseConfigured = (): boolean =>
 
 const supabase = supabaseConfigured() ? createClient(URL as string, KEY as string) : null
 
-type Presence = { clientId: string; joinedAt: number; playerId: string | null }
+type Presence = { clientId: string; joinedAt: number; playerId: string | null; auth: string }
 
-const NEEDLE_MS = 50 // троттл сетевых обновлений стрелки
+const NEEDLE_MS = 50
 
-export const createSupabaseTransport = (opts: { code: string }): Transport => {
+export const createSupabaseTransport = (opts: { code: string; secret: string }): Transport => {
   if (!supabase) throw new Error('Supabase не настроен: проверь VITE_SUPABASE_URL и VITE_SUPABASE_KEY')
   const clientId = crypto.randomUUID()
   const joinedAt = Date.now()
@@ -34,19 +35,47 @@ export const createSupabaseTransport = (opts: { code: string }): Transport => {
     statusSubs.forEach((cb) => cb(s))
   }
 
+  // --- HMAC-подпись секретом комнаты ---
+  const enc = new TextEncoder()
+  let keyPromise: Promise<CryptoKey> | null = null
+  const getKey = (): Promise<CryptoKey> =>
+    (keyPromise ??= crypto.subtle.importKey(
+      'raw',
+      enc.encode(opts.secret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign', 'verify'],
+    ))
+  const hmac = async (bytes: Uint8Array): Promise<string> => {
+    const buf = await crypto.subtle.sign('HMAC', await getKey(), new Uint8Array(bytes))
+    return btoa(String.fromCharCode(...new Uint8Array(buf)))
+  }
+  const verifyHmac = async (bytes: Uint8Array, sigB64: string): Promise<boolean> => {
+    try {
+      const sig = Uint8Array.from(atob(sigB64), (c) => c.charCodeAt(0))
+      return await crypto.subtle.verify('HMAC', await getKey(), new Uint8Array(sig), new Uint8Array(bytes))
+    } catch {
+      return false
+    }
+  }
+  const signData = (data: unknown): Promise<string> => hmac(enc.encode(JSON.stringify(data)))
+  const verifyData = async (msg: { d?: unknown; s?: unknown }): Promise<boolean> =>
+    typeof msg?.s === 'string' && verifyHmac(enc.encode(JSON.stringify(msg.d)), msg.s)
+
   const channel = supabase.channel(`room-${opts.code}`, {
     config: { broadcast: { self: false }, presence: { key: clientId } },
   })
 
-  const track = (): void => {
-    void channel.track({ clientId, joinedAt, playerId: myPlayerId } satisfies Presence)
+  // presence с подписью clientId — чужой без секрета не попадёт в выбор host
+  const track = async (): Promise<void> => {
+    const auth = await hmac(enc.encode(clientId))
+    void channel.track({ clientId, joinedAt, playerId: myPlayerId, auth } satisfies Presence)
   }
-  const sendState = (): void => {
-    void channel.send({ type: 'broadcast', event: 'state', payload: state })
+  const emit = (event: string, data: unknown): void => {
+    void signData(data).then((s) => channel.send({ type: 'broadcast', event, payload: { d: data, s } }))
   }
-  const sendAction = (action: Action): void => {
-    void channel.send({ type: 'broadcast', event: 'action', payload: action })
-  }
+  const sendState = (): void => emit('state', state)
+  const sendAction = (action: Action): void => emit('action', action)
   const applyAsHost = (action: Action): void => {
     state = reduce(state, action)
     notify()
@@ -60,29 +89,34 @@ export const createSupabaseTransport = (opts: { code: string }): Transport => {
     }
     return ids
   }
+  const verifyAuth = (p: Presence): Promise<boolean> =>
+    typeof p?.auth === 'string' && typeof p?.clientId === 'string'
+      ? verifyHmac(enc.encode(p.clientId), p.auth)
+      : Promise.resolve(false)
 
-  // хост = самый ранний присутствующий (стабильно к новым участникам)
-  const recomputeHost = (): void => {
-    const present = Object.values(channel.presenceState() as Record<string, Presence[]>)
+  // хост = самый ранний присутствующий С ВАЛИДНОЙ подписью (чужой не захватит/не застопорит)
+  const recomputeHost = async (): Promise<void> => {
+    const raw = Object.values(channel.presenceState() as Record<string, Presence[]>)
       .map((a) => a[0])
       .filter(Boolean)
-    present.sort((a, b) => a.joinedAt - b.joinedAt || (a.clientId < b.clientId ? -1 : 1))
-    const becameHost = present[0]?.clientId === clientId && !amHost
-    amHost = present[0]?.clientId === clientId
+    const valid: Presence[] = []
+    for (const p of raw) if (await verifyAuth(p)) valid.push(p)
+    valid.sort((a, b) => a.joinedAt - b.joinedAt || (a.clientId < b.clientId ? -1 : 1))
+    const becameHost = valid[0]?.clientId === clientId && !amHost
+    amHost = valid[0]?.clientId === clientId
     if (becameHost) {
-      // приняв авторитет, убираем игроков, чьих устройств уже нет, и рассылаем истину
-      const presentIds = presentPlayerIds()
+      const ids = presentPlayerIds()
       for (const p of state.players) {
-        if (!presentIds.has(p.id)) state = reduce(state, { type: 'leave', playerId: p.id })
+        if (!ids.has(p.id)) state = reduce(state, { type: 'leave', playerId: p.id })
       }
       notify()
       sendState()
     }
   }
 
-  channel.on('presence', { event: 'sync' }, recomputeHost)
+  channel.on('presence', { event: 'sync' }, () => void recomputeHost())
 
-  // устройство отключилось — хост удаляет привязанного к нему игрока
+  // отключение устройства: хост удаляет привязанного игрока (presence от Supabase, не подделать)
   channel.on('presence', { event: 'leave' }, ({ leftPresences }) => {
     if (!amHost) return
     for (const lp of leftPresences as unknown as Presence[]) {
@@ -92,29 +126,37 @@ export const createSupabaseTransport = (opts: { code: string }): Transport => {
 
   channel.on('broadcast', { event: 'action' }, ({ payload }) => {
     if (!amHost) return
-    applyAsHost(payload as Action)
+    void verifyData(payload).then((ok) => {
+      if (!ok) return
+      const action = (payload as { d: Action }).d
+      if (action.type === 'leave') return // host-internal, из сети не принимаем
+      applyAsHost(action)
+    })
   })
   channel.on('broadcast', { event: 'state' }, ({ payload }) => {
     if (amHost) return
-    state = payload as GameState
-    notify()
+    void verifyData(payload).then((ok) => {
+      if (!ok) return
+      state = (payload as { d: GameState }).d
+      notify()
+    })
   })
-  channel.on('broadcast', { event: 'hello' }, () => {
-    if (amHost) sendState()
+  channel.on('broadcast', { event: 'hello' }, ({ payload }) => {
+    if (!amHost) return
+    void verifyData(payload).then((ok) => ok && sendState())
   })
 
   channel.subscribe((status) => {
     if (status === 'SUBSCRIBED') {
       setConn('online')
-      track()
-      void channel.send({ type: 'broadcast', event: 'hello', payload: {} })
+      void track()
+      emit('hello', {})
     } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
-      // не глотаем: сообщаем UI о потере связи (supabase сам переподключает сокет)
       setConn('error')
     }
   })
 
-  // троттл сетевых обновлений стрелки с гарантированной досылкой финальной позиции
+  // троттл сетевых обновлений стрелки с досылкой финальной позиции
   let lastSent = 0
   let pendingNeedle: Action | null = null
   let timer: ReturnType<typeof setTimeout> | null = null
@@ -139,7 +181,6 @@ export const createSupabaseTransport = (opts: { code: string }): Transport => {
       else if (!timer) timer = setTimeout(flushNeedle, NEEDLE_MS - elapsed)
       return
     }
-    // прочее действие: сперва дослать отложенную стрелку (порядок на проводе), затем само действие
     if (pendingNeedle) flushNeedle()
     if (amHost) sendState()
     else sendAction(action)
@@ -160,7 +201,7 @@ export const createSupabaseTransport = (opts: { code: string }): Transport => {
     getState: () => state,
     setIdentity: (playerId) => {
       myPlayerId = playerId
-      track()
+      void track()
     },
     dispose: () => {
       if (timer) clearTimeout(timer)
