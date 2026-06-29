@@ -1,32 +1,36 @@
-# React + TypeScript + Vite
+# Длина волны
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Онлайн-версия настольной игры Wavelength: открываешь ссылку и играешь компанией, у каждого своё устройство.
 
-Currently, two official plugins are available:
+Прод: https://wavesite-rho.vercel.app
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Как играть
 
-## React Compiler
+Создай комнату, отправь ссылку друзьям. Телепат тайно видит мишень на шкале и даёт словесную подсказку между двумя противоположностями; команда двигает стрелку, вторая команда угадывает сторону. Есть кооперативный режим.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Стек
 
-## Expanding the Oxlint configuration
+React + Vite + TypeScript, Supabase Realtime (broadcast + presence). Авторитет состояния (host) выбирается по presence и мигрирует при отключении. Секрет мишени живёт только на устройстве телепата до раскрытия.
 
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
+## Разработка
 
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm install
+npm run dev
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+Без `.env` приложение работает в локальном режиме (одна вкладка). Для онлайна скопируй `.env.example` в `.env` и заполни:
+
+- `VITE_SUPABASE_URL` - URL проекта Supabase
+- `VITE_SUPABASE_KEY` - публичный (publishable) ключ
+
+## Проверки логики
+
+```bash
+node src/game/rules.selfcheck.ts
+node src/game/engine.selfcheck.ts
+```
+
+## Деплой
+
+Авто-деплой при push в `main` (Vercel). Вручную: `npx vercel --prod`.
