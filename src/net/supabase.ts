@@ -2,7 +2,7 @@
 // хост = самый ранний присутствующий клиент. при его уходе авторитет берёт
 // следующий по старшинству — у каждого клиента уже есть последний снапшот.
 import { createClient } from '@supabase/supabase-js'
-import type { Transport } from './transport.ts'
+import type { ConnStatus, Transport } from './transport.ts'
 import { reduce, initialState, type Action } from '../game/engine.ts'
 import type { GameState } from '../game/types.ts'
 
@@ -16,6 +16,8 @@ const supabase = supabaseConfigured() ? createClient(URL as string, KEY as strin
 
 type Presence = { clientId: string; joinedAt: number; playerId: string | null }
 
+const NEEDLE_MS = 50 // троттл сетевых обновлений стрелки
+
 export const createSupabaseTransport = (opts: { code: string }): Transport => {
   if (!supabase) throw new Error('Supabase не настроен: проверь VITE_SUPABASE_URL и VITE_SUPABASE_KEY')
   const clientId = crypto.randomUUID()
@@ -24,7 +26,13 @@ export const createSupabaseTransport = (opts: { code: string }): Transport => {
   let state: GameState = initialState
   let amHost = false
   const subs = new Set<(s: GameState) => void>()
+  const statusSubs = new Set<(s: ConnStatus) => void>()
+  let conn: ConnStatus = 'connecting'
   const notify = (): void => subs.forEach((cb) => cb(state))
+  const setConn = (s: ConnStatus): void => {
+    conn = s
+    statusSubs.forEach((cb) => cb(s))
+  }
 
   const channel = supabase.channel(`room-${opts.code}`, {
     config: { broadcast: { self: false }, presence: { key: clientId } },
@@ -36,13 +44,14 @@ export const createSupabaseTransport = (opts: { code: string }): Transport => {
   const sendState = (): void => {
     void channel.send({ type: 'broadcast', event: 'state', payload: state })
   }
-  // применить действие как хост: обновить истину и разослать
+  const sendAction = (action: Action): void => {
+    void channel.send({ type: 'broadcast', event: 'action', payload: action })
+  }
   const applyAsHost = (action: Action): void => {
     state = reduce(state, action)
     notify()
     sendState()
   }
-  // playerId всех присутствующих устройств
   const presentPlayerIds = (): Set<string> => {
     const ids = new Set<string>()
     for (const arr of Object.values(channel.presenceState() as Record<string, Presence[]>)) {
@@ -58,13 +67,14 @@ export const createSupabaseTransport = (opts: { code: string }): Transport => {
       .map((a) => a[0])
       .filter(Boolean)
     present.sort((a, b) => a.joinedAt - b.joinedAt || (a.clientId < b.clientId ? -1 : 1))
-    const hostId = present[0]?.clientId
-    const becameHost = hostId === clientId && !amHost
-    amHost = hostId === clientId
+    const becameHost = present[0]?.clientId === clientId && !amHost
+    amHost = present[0]?.clientId === clientId
     if (becameHost) {
       // приняв авторитет, убираем игроков, чьих устройств уже нет, и рассылаем истину
-      const present = presentPlayerIds()
-      for (const p of state.players) if (!present.has(p.id)) state = reduce(state, { type: 'leave', playerId: p.id })
+      const presentIds = presentPlayerIds()
+      for (const p of state.players) {
+        if (!presentIds.has(p.id)) state = reduce(state, { type: 'leave', playerId: p.id })
+      }
       notify()
       sendState()
     }
@@ -80,7 +90,6 @@ export const createSupabaseTransport = (opts: { code: string }): Transport => {
     }
   })
 
-  // только хост применяет действия и рассылает снапшот
   channel.on('broadcast', { event: 'action' }, ({ payload }) => {
     if (!amHost) return
     applyAsHost(payload as Action)
@@ -95,26 +104,45 @@ export const createSupabaseTransport = (opts: { code: string }): Transport => {
   })
 
   channel.subscribe((status) => {
-    if (status !== 'SUBSCRIBED') return
-    track()
-    void channel.send({ type: 'broadcast', event: 'hello', payload: {} })
+    if (status === 'SUBSCRIBED') {
+      setConn('online')
+      track()
+      void channel.send({ type: 'broadcast', event: 'hello', payload: {} })
+    } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+      // не глотаем: сообщаем UI о потере связи (supabase сам переподключает сокет)
+      setConn('error')
+    }
   })
 
-  let lastNeedleSent = 0
+  // троттл сетевых обновлений стрелки с гарантированной досылкой финальной позиции
+  let lastSent = 0
+  let pendingNeedle: Action | null = null
+  let timer: ReturnType<typeof setTimeout> | null = null
+  const flushNeedle = (): void => {
+    if (timer) {
+      clearTimeout(timer)
+      timer = null
+    }
+    lastSent = performance.now()
+    if (amHost) sendState()
+    else if (pendingNeedle) sendAction(pendingNeedle)
+    pendingNeedle = null
+  }
+
   const dispatch = (action: Action): void => {
-    // оптимистично применяем локально для отзывчивости
     state = reduce(state, action)
     notify()
-    if (amHost) {
-      sendState()
+    if (action.type === 'moveNeedle') {
+      pendingNeedle = action
+      const elapsed = performance.now() - lastSent
+      if (elapsed >= NEEDLE_MS) flushNeedle()
+      else if (!timer) timer = setTimeout(flushNeedle, NEEDLE_MS - elapsed)
       return
     }
-    if (action.type === 'moveNeedle') {
-      const now = performance.now()
-      if (now - lastNeedleSent < 50) return
-      lastNeedleSent = now
-    }
-    void channel.send({ type: 'broadcast', event: 'action', payload: action })
+    // прочее действие: сперва дослать отложенную стрелку (порядок на проводе), затем само действие
+    if (pendingNeedle) flushNeedle()
+    if (amHost) sendState()
+    else sendAction(action)
   }
 
   return {
@@ -124,13 +152,20 @@ export const createSupabaseTransport = (opts: { code: string }): Transport => {
       cb(state)
       return () => void subs.delete(cb)
     },
+    subscribeStatus: (cb) => {
+      statusSubs.add(cb)
+      cb(conn)
+      return () => void statusSubs.delete(cb)
+    },
     getState: () => state,
     setIdentity: (playerId) => {
       myPlayerId = playerId
-      track() // обновить presence, чтобы хост знал, какой игрок на этом устройстве
+      track()
     },
     dispose: () => {
+      if (timer) clearTimeout(timer)
       subs.clear()
+      statusSubs.clear()
       void supabase.removeChannel(channel)
     },
   }

@@ -252,6 +252,33 @@
   box-shadow: 0 0 30px -4px var(--accent-glow);
 }
 
+.rules {
+  margin: 12px 0 4px;
+  padding-left: 20px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.conn {
+  text-align: center;
+  font-size: 13px;
+  padding: 8px;
+  border-radius: 10px;
+  margin-bottom: 12px;
+}
+
+.conn.connecting {
+  background: rgba(46, 56, 99, 0.5);
+  color: var(--muted);
+}
+
+.conn.error {
+  background: rgba(255, 87, 71, 0.18);
+  color: #ffb4ab;
+  border: 1px solid var(--accent);
+}
+
 .footer {
   text-align: center;
   margin-top: 20px;

@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 import { animate, AnimatePresence, motion, useAnimate, useMotionValue } from 'motion/react'
-import confetti from 'canvas-confetti'
 import './game.css'
 import { Dial } from './Dial.tsx'
 import { playReveal, playYourTurn } from './sound.ts'
@@ -13,6 +12,18 @@ const TEAM_NAME: Record<TeamId, string> = {
   right: 'Правое полушарие',
 }
 
+// не-цветовой признак команды (для дальтоников)
+const TEAM_MARK: Record<TeamId, string> = { left: '▲', right: '●' }
+
+const RULES = [
+  'Телепат тайно видит цветную зону на шкале.',
+  'Он даёт подсказку между двумя противоположностями (без чисел и однокоренных слов).',
+  'Его команда двигает стрелку к центру зоны.',
+  'Вторая команда угадывает, слева или справа от стрелки центр (+1 очко).',
+  'Телепат открывает экран: чем ближе к центру, тем больше очков (2-4).',
+  'Побеждает команда, набравшая 10+. В коопе играете вместе против колоды.',
+]
+
 const nameOf = (state: GameState, id: string): string =>
   state.players.find((p) => p.id === id)?.name ?? '???'
 
@@ -24,6 +35,7 @@ const Lobby = ({ room, dev, roomCode }: { room: Room; dev: boolean; roomCode: st
   const { state, me, actions } = room
   const [name, setName] = useState('')
   const [copied, setCopied] = useState(false)
+  const [showRules, setShowRules] = useState(false)
   const coop = state.mode === 'coop'
   const canStart = coop
     ? state.players.length >= 1
@@ -32,6 +44,10 @@ const Lobby = ({ room, dev, roomCode }: { room: Room; dev: boolean; roomCode: st
   const shareLink = (): void => {
     void navigator.clipboard.writeText(window.location.href)
     setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+  const tryJoin = (): void => {
+    if (name.trim().length > 0) actions.join(name.trim(), 'left')
   }
 
   return (
@@ -69,18 +85,26 @@ const Lobby = ({ room, dev, roomCode }: { room: Room; dev: boolean; roomCode: st
             placeholder="Твоё имя"
             value={name}
             onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && tryJoin()}
             maxLength={20}
           />
-          <button
-            className="btn wide"
-            disabled={name.trim().length === 0}
-            onClick={() => actions.join(name.trim(), 'left')}
-          >
+          <button className="btn wide" disabled={name.trim().length === 0} onClick={tryJoin}>
             Войти
           </button>
         </div>
       ) : (
         <p className="muted">Ты: {me.name}</p>
+      )}
+
+      <button className="chip" style={{ marginTop: 8 }} onClick={() => setShowRules((v) => !v)}>
+        {showRules ? 'Скрыть правила' : 'Как играть'}
+      </button>
+      {showRules && (
+        <ol className="rules">
+          {RULES.map((r) => (
+            <li key={r}>{r}</li>
+          ))}
+        </ol>
       )}
 
       {coop ? (
@@ -94,7 +118,9 @@ const Lobby = ({ room, dev, roomCode }: { room: Room; dev: boolean; roomCode: st
         <div className="players">
           {(['left', 'right'] as TeamId[]).map((team) => (
             <div className="col" key={team}>
-              <h3 style={{ color: `var(--${team})` }}>{TEAM_NAME[team]}</h3>
+              <h3 style={{ color: `var(--${team})` }}>
+                {TEAM_MARK[team]} {TEAM_NAME[team]}
+              </h3>
               {state.players
                 .filter((p) => p.team === team)
                 .map((p) => (
@@ -130,7 +156,7 @@ const Lobby = ({ room, dev, roomCode }: { room: Room; dev: boolean; roomCode: st
         </p>
       )}
 
-      {dev && (
+      {import.meta.env.DEV && dev && (
         <div className="devbar" style={{ marginTop: 16 }}>
           <span>добавить игрока:</span>
           <button className="chip" onClick={() => actions.addPlayer('Игрок ' + (state.players.length + 1), 'left')}>
@@ -169,7 +195,9 @@ const PhasePanel = ({ room }: { room: Room }) => {
               className="field"
               placeholder="Подсказка"
               value={clue}
+              maxLength={60}
               onChange={(e) => setClue(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && clue.trim().length > 0 && actions.submitClue(clue.trim())}
             />
             <button
               className="btn wide"
@@ -249,20 +277,34 @@ const RevealPanel = ({ room }: { room: Room }) => {
   const round = state.round
   if (!round || round.target === null) return null
   const pts = bandPoints(round.target, round.needlePos)
-
-  let summary: string
-  if (state.mode === 'coop') {
-    summary = `+${coopPoints(round.target, round.needlePos)} очк. Осталось карт: ${state.cardsRemaining}`
-  } else {
-    const guessedRight =
-      pts !== 4 && round.leftRightGuess === sideOfTarget(round.target, round.needlePos)
-    const otherName = TEAM_NAME[round.activeTeam === 'left' ? 'right' : 'left']
-    summary = `${TEAM_NAME[round.activeTeam]}: +${pts}. ${otherName}: +${guessedRight ? 1 : 0}`
-  }
+  const verdict = pts === 4 ? 'В самый центр!' : pts > 0 ? 'Попадание в зону' : 'Мимо зоны'
 
   return (
     <div className="panel">
-      <p className="clue">{summary}</p>
+      <p className="clue">{verdict}</p>
+      {state.mode === 'coop' ? (
+        <p style={{ textAlign: 'center' }}>
+          <b style={{ fontSize: 22 }}>+{coopPoints(round.target, round.needlePos)}</b> очк. · осталось
+          карт: {state.cardsRemaining}
+        </p>
+      ) : (
+        <div className="scores" style={{ marginBottom: 12 }}>
+          {(['left', 'right'] as TeamId[]).map((team) => {
+            const gain =
+              team === round.activeTeam
+                ? pts
+                : pts !== 4 && round.leftRightGuess === sideOfTarget(round.target!, round.needlePos)
+                  ? 1
+                  : 0
+            return (
+              <div key={team} className={`score ${team}`} style={{ color: `var(--${team})` }}>
+                <b>+{gain}</b>
+                <span className="muted">{TEAM_MARK[team]} {TEAM_NAME[team]}</span>
+              </div>
+            )
+          })}
+        </div>
+      )}
       <button className="btn wide" onClick={actions.nextRound}>
         Следующий раунд
       </button>
@@ -304,7 +346,7 @@ const ScoreBox = ({ value, team, active }: { value: number; team: TeamId; active
       <b>
         <AnimatedNumber value={value} />
       </b>
-      <span className="muted">{TEAM_NAME[team]}</span>
+      <span className="muted">{TEAM_MARK[team]} {TEAM_NAME[team]}</span>
     </div>
   )
 }
@@ -414,6 +456,16 @@ const Table = ({ room, muted }: { room: Room; muted: boolean }) => {
           <PhasePanel room={room} />
         </motion.div>
       </AnimatePresence>
+      {phase !== 'reveal' && (
+        <div className="row" style={{ justifyContent: 'center', marginTop: 4 }}>
+          <button className="chip" onClick={actions.skipRound}>
+            Пропустить раунд
+          </button>
+          <button className="chip" onClick={actions.toLobby}>
+            В лобби
+          </button>
+        </div>
+      )}
     </div>
   )
 }
@@ -421,18 +473,26 @@ const Table = ({ room, muted }: { room: Room; muted: boolean }) => {
 const GameOver = ({ room }: { room: Room }) => {
   const { state, actions } = room
 
-  // празднование: салют из конфетти
+  // празднование: салют из конфетти (ленивый импорт — не в основном бандле)
   useEffect(() => {
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
-    const colors = ['#5bd6f5', '#ffb05c', '#ff5747', '#ffffff']
-    const end = Date.now() + 900
-    const tick = (): void => {
-      confetti({ particleCount: 4, angle: 60, spread: 55, origin: { x: 0 }, colors })
-      confetti({ particleCount: 4, angle: 120, spread: 55, origin: { x: 1 }, colors })
-      if (Date.now() < end) requestAnimationFrame(tick)
+    let stop = false
+    void import('canvas-confetti').then(({ default: confetti }) => {
+      if (stop) return
+      const colors = ['#5bd6f5', '#ffb05c', '#ff5747', '#ffffff']
+      const end = Date.now() + 900
+      const tick = (): void => {
+        if (stop) return
+        confetti({ particleCount: 4, angle: 60, spread: 55, origin: { x: 0 }, colors })
+        confetti({ particleCount: 4, angle: 120, spread: 55, origin: { x: 1 }, colors })
+        if (Date.now() < end) requestAnimationFrame(tick)
+      }
+      confetti({ particleCount: 130, spread: 100, origin: { y: 0.5 }, colors })
+      tick()
+    })
+    return () => {
+      stop = true
     }
-    confetti({ particleCount: 130, spread: 100, origin: { y: 0.5 }, colors })
-    tick()
   }, [])
 
   let text: string
@@ -484,7 +544,7 @@ export const Game = ({
   devPerspective: boolean
   roomCode?: string | null
 }) => {
-  const { state } = room
+  const { state, conn } = room
   const [muted, setMuted] = useState(() => localStorage.getItem('wave_muted') === '1')
   const toggleMute = (): void => {
     setMuted((m) => {
@@ -497,6 +557,11 @@ export const Game = ({
     state.phase === 'lobby' ? 'lobby' : state.phase === 'gameover' ? 'over' : 'table'
   return (
     <div>
+      {conn !== 'online' && (
+        <div className={`conn ${conn}`}>
+          {conn === 'connecting' ? 'Подключение…' : 'Связь потеряна - переподключаемся…'}
+        </div>
+      )}
       <AnimatePresence mode="wait">
         <motion.div
           key={screen}

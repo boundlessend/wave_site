@@ -30,18 +30,21 @@ export type RoundSeed = {
   readonly card: Card
 }
 
+// actorId на ролевых действиях: хост проверяет право актёра (античит)
 export type Action =
   | { type: 'join'; player: Player }
   | { type: 'leave'; playerId: string }
   | { type: 'setTeam'; playerId: string; team: TeamId }
   | { type: 'setMode'; mode: GameMode }
   | { type: 'startGame'; seed: RoundSeed }
-  | { type: 'submitClue'; clue: string }
-  | { type: 'moveNeedle'; pos: number }
-  | { type: 'lockNeedle' }
-  | { type: 'submitSide'; side: Side }
-  | { type: 'reveal'; target: number } // телепат "открывает экран"
-  | { type: 'nextRound'; seed: RoundSeed }
+  | { type: 'submitClue'; actorId: string; clue: string }
+  | { type: 'moveNeedle'; actorId: string; pos: number }
+  | { type: 'lockNeedle'; actorId: string }
+  | { type: 'submitSide'; actorId: string; side: Side }
+  | { type: 'reveal'; actorId: string; target: number }
+  | { type: 'nextRound'; seed: RoundSeed; fromRoundNo: number }
+  | { type: 'skipRound'; seed: RoundSeed; fromRoundNo: number } // принудительно (выход телепата/тупик)
+  | { type: 'toLobby' }
   | { type: 'reset' }
 
 export const initialState: GameState = {
@@ -54,6 +57,9 @@ export const initialState: GameState = {
   cardsRemaining: 0,
   winner: null,
 }
+
+const teamOf = (state: GameState, id: string): TeamId | null =>
+  state.players.find((p) => p.id === id)?.team ?? null
 
 const startRound = (seed: RoundSeed): Round => ({
   activeTeam: seed.activeTeam,
@@ -114,6 +120,7 @@ export const reduce = (state: GameState, action: Action): GameState => {
         ),
       }
     case 'setMode':
+      if (state.phase !== 'lobby') return state
       return { ...state, mode: action.mode }
     case 'startGame': {
       if (state.phase !== 'lobby') return state
@@ -133,7 +140,9 @@ export const reduce = (state: GameState, action: Action): GameState => {
       }
     }
     case 'submitClue': {
+      // только телепат активной команды
       if (!state.round || state.phase !== 'psychic') return state
+      if (action.actorId !== state.round.psychicId) return state
       return {
         ...state,
         phase: 'team',
@@ -141,16 +150,22 @@ export const reduce = (state: GameState, action: Action): GameState => {
       }
     }
     case 'moveNeedle': {
+      // только игроки активной команды
       if (!state.round || state.phase !== 'team') return state
+      if (teamOf(state, action.actorId) !== state.round.activeTeam) return state
       return { ...state, round: { ...state.round, needlePos: action.pos } }
     }
     case 'lockNeedle': {
       if (!state.round || state.phase !== 'team') return state
+      if (teamOf(state, action.actorId) !== state.round.activeTeam) return state
       // coop минует фазу слева/справа; обе ветки ждут раскрытия телепатом
       return { ...state, phase: state.mode === 'coop' ? 'await_reveal' : 'leftright' }
     }
     case 'submitSide': {
+      // только вторая команда (не активная)
       if (!state.round || state.phase !== 'leftright') return state
+      const t = teamOf(state, action.actorId)
+      if (t === null || t === state.round.activeTeam) return state
       return {
         ...state,
         phase: 'await_reveal',
@@ -158,7 +173,9 @@ export const reduce = (state: GameState, action: Action): GameState => {
       }
     }
     case 'reveal': {
+      // только телепат раскрывает мишень
       if (!state.round || state.phase !== 'await_reveal') return state
+      if (action.actorId !== state.round.psychicId) return state
       const round = { ...state.round, target: action.target }
       const r = applyReveal(state, round)
       return {
@@ -171,7 +188,7 @@ export const reduce = (state: GameState, action: Action): GameState => {
       }
     }
     case 'nextRound': {
-      if (state.phase !== 'reveal') return state
+      if (state.phase !== 'reveal' || state.roundNo !== action.fromRoundNo) return state
       if (state.mode === 'coop' && state.cardsRemaining <= 0) {
         return { ...state, phase: 'gameover', round: null }
       }
@@ -182,6 +199,20 @@ export const reduce = (state: GameState, action: Action): GameState => {
         roundNo: state.roundNo + 1,
       }
     }
+    case 'skipRound': {
+      // принудительный новый раунд из любой игровой фазы (выход телепата/тупик),
+      // очки сохраняются; дедуп по fromRoundNo против гонки клиентов
+      if (state.phase === 'lobby' || state.phase === 'gameover') return state
+      if (state.roundNo !== action.fromRoundNo) return state
+      return {
+        ...state,
+        phase: 'psychic',
+        round: startRound(action.seed),
+        roundNo: state.roundNo + 1,
+      }
+    }
+    case 'toLobby':
+      return { ...state, phase: 'lobby', round: null }
     case 'reset':
       return { ...initialState, players: state.players, mode: state.mode }
   }
@@ -196,4 +227,13 @@ export const nextActiveTeam = (state: GameState): TeamId => {
     activeTeam: state.round.activeTeam,
   })
   return stays ? state.round.activeTeam : otherTeam(state.round.activeTeam)
+}
+
+// команда с игроками: предпочтительная, иначе другая, иначе null
+export const teamWithPlayers = (state: GameState, preferred: TeamId): TeamId | null => {
+  const has = (t: TeamId): boolean => state.players.some((p) => p.team === t)
+  if (has(preferred)) return preferred
+  const other = otherTeam(preferred)
+  if (has(other)) return other
+  return null
 }

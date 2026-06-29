@@ -1,6 +1,5 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import { motion, useMotionValue, useSpring, useTransform } from 'motion/react'
-import gsap from 'gsap'
 import { ZONE } from '../game/rules.ts'
 
 // геометрия viewBox
@@ -10,7 +9,6 @@ const CX = 200
 const CY = 200
 const R = 184
 
-// позиция p (0..100) → угол θ в радианах (p=0 слева=π, p=100 справа=0)
 const angleOf = (p: number): number => Math.PI * (1 - p / 100)
 
 const pointAt = (p: number, r: number): { x: number; y: number } => {
@@ -18,7 +16,6 @@ const pointAt = (p: number, r: number): { x: number; y: number } => {
   return { x: CX + r * Math.cos(t), y: CY - r * Math.sin(t) }
 }
 
-// сектор-клин от центра до обода между позициями pLo..pHi
 const wedge = (pLo: number, pHi: number, r: number): string => {
   const a = pointAt(pLo, r)
   const b = pointAt(pHi, r)
@@ -41,7 +38,6 @@ export const Dial = ({ needlePos, target, interactive, onChange }: DialProps) =>
   const dragging = useRef(false)
   const prevTarget = useRef<number | null>(target)
 
-  // пружина стрелки: плавно тянется к позиции (особенно при удалённых ходах)
   const posMV = useMotionValue(needlePos)
   const spring = useSpring(posMV, { stiffness: 280, damping: 30 })
   useEffect(() => {
@@ -50,18 +46,31 @@ export const Dial = ({ needlePos, target, interactive, onChange }: DialProps) =>
   const nx = useTransform(spring, (p) => pointAt(p, R - 12).x)
   const ny = useTransform(spring, (p) => pointAt(p, R - 12).y)
 
-  // GSAP-хореография раскрытия зоны: клинья вырастают из центра со сдвигом
+  // GSAP-хореография раскрытия зоны (ленивый импорт — gsap не в основном бандле)
   useLayoutEffect(() => {
     const appeared = prevTarget.current === null && target !== null
     prevTarget.current = target
-    if (!appeared || !bandsRef.current) return
+    const g = bandsRef.current
+    if (!appeared || !g) return
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
-    const paths = bandsRef.current.children
-    gsap.fromTo(
-      paths,
-      { scale: 0, opacity: 0, svgOrigin: `${CX} ${CY}` },
-      { scale: 1, opacity: 1, duration: 0.55, stagger: 0.05, ease: 'back.out(1.7)' },
-    )
+    g.style.opacity = '0' // прячем до загрузки gsap, чтобы не было вспышки
+    let cancelled = false
+    // подстраховка: если чанк не загрузится — всё равно показать зону
+    const safety = setTimeout(() => g && (g.style.opacity = '1'), 800)
+    void import('gsap').then(({ default: gsap }) => {
+      clearTimeout(safety)
+      if (cancelled || !bandsRef.current) return
+      bandsRef.current.style.opacity = '1'
+      gsap.fromTo(
+        bandsRef.current.children,
+        { scale: 0, opacity: 0, svgOrigin: `${CX} ${CY}` },
+        { scale: 1, opacity: 1, duration: 0.55, stagger: 0.05, ease: 'back.out(1.7)' },
+      )
+    })
+    return () => {
+      cancelled = true
+      clearTimeout(safety)
+    }
   }, [target])
 
   const posFromEvent = (clientX: number, clientY: number): number => {
@@ -88,6 +97,17 @@ export const Dial = ({ needlePos, target, interactive, onChange }: DialProps) =>
   const handleUp = (): void => {
     dragging.current = false
   }
+  // управление с клавиатуры
+  const handleKey = (e: React.KeyboardEvent<SVGSVGElement>): void => {
+    if (!interactive || !onChange) return
+    const step = e.shiftKey ? 5 : 1
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') onChange(clamp(needlePos - step, 0, 100))
+    else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') onChange(clamp(needlePos + step, 0, 100))
+    else if (e.key === 'Home') onChange(0)
+    else if (e.key === 'End') onChange(100)
+    else return
+    e.preventDefault()
+  }
 
   const bands =
     target === null
@@ -104,11 +124,24 @@ export const Dial = ({ needlePos, target, interactive, onChange }: DialProps) =>
     <svg
       ref={svgRef}
       viewBox={`0 0 ${W} ${H}`}
-      style={{ width: '100%', height: 'auto', touchAction: 'none', userSelect: 'none' }}
+      style={{
+        width: '100%',
+        height: 'auto',
+        touchAction: 'none',
+        userSelect: 'none',
+        outlineOffset: 4,
+      }}
+      role="slider"
+      aria-label="Положение стрелки на шкале"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={Math.round(needlePos)}
+      tabIndex={interactive ? 0 : -1}
       onPointerDown={handleDown}
       onPointerMove={handleMove}
       onPointerUp={handleUp}
       onPointerCancel={handleUp}
+      onKeyDown={handleKey}
     >
       <defs>
         <radialGradient id="dialface" cx="50%" cy="100%" r="100%">
@@ -116,20 +149,17 @@ export const Dial = ({ needlePos, target, interactive, onChange }: DialProps) =>
           <stop offset="100%" stopColor="#141937" />
         </radialGradient>
       </defs>
-      {/* фон-полукруг */}
       <path
         d={`M ${CX - R} ${CY} A ${R} ${R} 0 0 1 ${CX + R} ${CY} Z`}
         fill="url(#dialface)"
         stroke="rgba(120,140,220,0.18)"
         strokeWidth={1}
       />
-      {/* зона мишени со свечением */}
       <g ref={bandsRef} style={{ filter: 'drop-shadow(0 0 10px rgba(255,90,70,0.45))' }}>
         {bands.map((b, i) => (
           <path key={i} d={wedge(b.lo, b.hi, R)} fill={b.color} />
         ))}
       </g>
-      {/* стрелка с лёгким свечением */}
       <motion.line
         x1={CX}
         y1={CY}

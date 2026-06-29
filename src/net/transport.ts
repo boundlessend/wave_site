@@ -4,9 +4,12 @@ import type { Action } from '../game/engine.ts'
 import { reduce, initialState } from '../game/engine.ts'
 import type { GameState } from '../game/types.ts'
 
+export type ConnStatus = 'connecting' | 'online' | 'error'
+
 export type Transport = {
   dispatch: (action: Action) => void
   subscribe: (cb: (state: GameState) => void) => () => void
+  subscribeStatus: (cb: (status: ConnStatus) => void) => () => void
   getState: () => GameState
   // связать это устройство с игроком (для удаления при отключении)
   setIdentity: (playerId: string) => void
@@ -27,6 +30,10 @@ export const createLocalTransport = (): Transport => {
       subs.add(cb)
       cb(state)
       return () => void subs.delete(cb)
+    },
+    subscribeStatus: (cb) => {
+      cb('online') // локально связь всегда есть
+      return () => {}
     },
     getState: () => state,
     setIdentity: () => {}, // локально presence нет
