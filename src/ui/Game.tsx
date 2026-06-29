@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import { animate, AnimatePresence, motion, useAnimate, useMotionValue } from 'motion/react'
+import confetti from 'canvas-confetti'
 import './game.css'
 import { Dial } from './Dial.tsx'
 import { playReveal, playYourTurn } from './sound.ts'
@@ -268,17 +270,60 @@ const RevealPanel = ({ room }: { room: Room }) => {
   )
 }
 
+// плавный счётчик очков
+const AnimatedNumber = ({ value }: { value: number }) => {
+  const mv = useMotionValue(value)
+  const [display, setDisplay] = useState(value)
+  useEffect(() => {
+    const controls = animate(mv, value, {
+      duration: 0.5,
+      ease: 'easeOut',
+      onUpdate: (v) => setDisplay(Math.round(v)),
+    })
+    return () => controls.stop()
+  }, [value, mv])
+  return <>{display}</>
+}
+
+// очко команды: пульс при росте
+const ScoreBox = ({ value, team, active }: { value: number; team: TeamId; active: boolean }) => {
+  const [scope, run] = useAnimate()
+  const prev = useRef(value)
+  useEffect(() => {
+    if (value > prev.current) {
+      void run(scope.current, { scale: [1, 1.12, 1] }, { duration: 0.4, ease: 'easeOut' })
+    }
+    prev.current = value
+  }, [value, run, scope])
+  return (
+    <div
+      ref={scope}
+      className={`score ${team} ${active ? 'active' : ''}`}
+      style={{ color: `var(--${team})` }}
+    >
+      <b>
+        <AnimatedNumber value={value} />
+      </b>
+      <span className="muted">{TEAM_NAME[team]}</span>
+    </div>
+  )
+}
+
 // ——— табло ———
 const Scores = ({ state }: { state: GameState }) => {
   if (state.mode === 'coop') {
     return (
       <div className="scores">
         <div className="score">
-          <b>{state.scores.left}</b>
+          <b>
+            <AnimatedNumber value={state.scores.left} />
+          </b>
           очков
         </div>
         <div className="score">
-          <b>{state.cardsRemaining}</b>
+          <b>
+            <AnimatedNumber value={state.cardsRemaining} />
+          </b>
           карт осталось
         </div>
       </div>
@@ -288,14 +333,7 @@ const Scores = ({ state }: { state: GameState }) => {
   return (
     <div className="scores">
       {(['left', 'right'] as TeamId[]).map((team) => (
-        <div
-          key={team}
-          className={`score ${team} ${active === team ? 'active' : ''}`}
-          style={{ color: `var(--${team})` }}
-        >
-          <b>{state.scores[team]}</b>
-          <span className="muted">{TEAM_NAME[team]}</span>
-        </div>
+        <ScoreBox key={team} value={state.scores[team]} team={team} active={active === team} />
       ))}
     </div>
   )
@@ -339,7 +377,19 @@ const Table = ({ room, muted }: { room: Room; muted: boolean }) => {
 
   return (
     <div>
-      {myTurn && <div className="turn-banner">Твой ход</div>}
+      <AnimatePresence>
+        {myTurn && (
+          <motion.div
+            className="turn-banner"
+            initial={{ opacity: 0, scale: 0.92, y: -8 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.92, y: -8 }}
+            transition={{ type: 'spring', stiffness: 320, damping: 22 }}
+          >
+            Твой ход
+          </motion.div>
+        )}
+      </AnimatePresence>
       <Scores state={state} />
       <div className="dial-wrap">
         <Dial
@@ -353,13 +403,38 @@ const Table = ({ room, muted }: { room: Room; muted: boolean }) => {
           <div className="pole r">{round.card[1]}</div>
         </div>
       </div>
-      <PhasePanel room={room} />
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={phase}
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -10 }}
+          transition={{ duration: 0.2, ease: 'easeOut' }}
+        >
+          <PhasePanel room={room} />
+        </motion.div>
+      </AnimatePresence>
     </div>
   )
 }
 
 const GameOver = ({ room }: { room: Room }) => {
   const { state, actions } = room
+
+  // празднование: салют из конфетти
+  useEffect(() => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    const colors = ['#5bd6f5', '#ffb05c', '#ff5747', '#ffffff']
+    const end = Date.now() + 900
+    const tick = (): void => {
+      confetti({ particleCount: 4, angle: 60, spread: 55, origin: { x: 0 }, colors })
+      confetti({ particleCount: 4, angle: 120, spread: 55, origin: { x: 1 }, colors })
+      if (Date.now() < end) requestAnimationFrame(tick)
+    }
+    confetti({ particleCount: 130, spread: 100, origin: { y: 0.5 }, colors })
+    tick()
+  }, [])
+
   let text: string
   if (state.mode === 'coop') {
     text = `Игра окончена. Итог: ${state.scores.left} очков`
@@ -418,14 +493,25 @@ export const Game = ({
       return next
     })
   }
-  const playing = state.phase !== 'lobby' && state.phase !== 'gameover'
+  const screen =
+    state.phase === 'lobby' ? 'lobby' : state.phase === 'gameover' ? 'over' : 'table'
   return (
     <div>
-      {state.phase === 'lobby' && (
-        <Lobby room={room} dev={devPerspective} roomCode={roomCode} />
-      )}
-      {state.phase === 'gameover' && <GameOver room={room} />}
-      {playing && <Table room={room} muted={muted} />}
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={screen}
+          initial={{ opacity: 0, y: 14 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -14 }}
+          transition={{ duration: 0.28, ease: 'easeOut' }}
+        >
+          {screen === 'lobby' && (
+            <Lobby room={room} dev={devPerspective} roomCode={roomCode} />
+          )}
+          {screen === 'over' && <GameOver room={room} />}
+          {screen === 'table' && <Table room={room} muted={muted} />}
+        </motion.div>
+      </AnimatePresence>
       {devPerspective && <DevBar room={room} />}
       <div className="footer">
         <button className="chip" onClick={toggleMute}>

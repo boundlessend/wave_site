@@ -3,6 +3,7 @@ import { createLocalTransport, type Transport } from './net/transport.ts'
 import { createSupabaseTransport, supabaseConfigured } from './net/supabase.ts'
 import { useRoom } from './useRoom.ts'
 import { Game } from './ui/Game.tsx'
+import { Starfield } from './ui/Starfield.tsx'
 
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ'
 const genCode = (): string =>
@@ -80,5 +81,10 @@ function Online() {
 }
 
 export default function App() {
-  return supabaseConfigured() ? <Online /> : <LocalRoom />
+  return (
+    <>
+      <Starfield />
+      {supabaseConfigured() ? <Online /> : <LocalRoom />}
+    </>
+  )
 }

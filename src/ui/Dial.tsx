@@ -1,4 +1,6 @@
-import { useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
+import { motion, useMotionValue, useSpring, useTransform } from 'motion/react'
+import gsap from 'gsap'
 import { ZONE } from '../game/rules.ts'
 
 // геометрия viewBox
@@ -20,7 +22,6 @@ const pointAt = (p: number, r: number): { x: number; y: number } => {
 const wedge = (pLo: number, pHi: number, r: number): string => {
   const a = pointAt(pLo, r)
   const b = pointAt(pHi, r)
-  // sweep-flag 1: по часовой (слева направо над верхом)
   return `M ${CX} ${CY} L ${a.x.toFixed(2)} ${a.y.toFixed(2)} A ${r} ${r} 0 0 1 ${b.x.toFixed(2)} ${b.y.toFixed(2)} Z`
 }
 
@@ -29,14 +30,39 @@ const clamp = (n: number, lo: number, hi: number): number =>
 
 type DialProps = {
   needlePos: number
-  target: number | null // мишень рисуется только когда задана
+  target: number | null
   interactive: boolean
   onChange: ((p: number) => void) | null
 }
 
 export const Dial = ({ needlePos, target, interactive, onChange }: DialProps) => {
   const svgRef = useRef<SVGSVGElement>(null)
+  const bandsRef = useRef<SVGGElement>(null)
   const dragging = useRef(false)
+  const prevTarget = useRef<number | null>(target)
+
+  // пружина стрелки: плавно тянется к позиции (особенно при удалённых ходах)
+  const posMV = useMotionValue(needlePos)
+  const spring = useSpring(posMV, { stiffness: 280, damping: 30 })
+  useEffect(() => {
+    posMV.set(needlePos)
+  }, [needlePos, posMV])
+  const nx = useTransform(spring, (p) => pointAt(p, R - 12).x)
+  const ny = useTransform(spring, (p) => pointAt(p, R - 12).y)
+
+  // GSAP-хореография раскрытия зоны: клинья вырастают из центра со сдвигом
+  useLayoutEffect(() => {
+    const appeared = prevTarget.current === null && target !== null
+    prevTarget.current = target
+    if (!appeared || !bandsRef.current) return
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    const paths = bandsRef.current.children
+    gsap.fromTo(
+      paths,
+      { scale: 0, opacity: 0, svgOrigin: `${CX} ${CY}` },
+      { scale: 1, opacity: 1, duration: 0.55, stagger: 0.05, ease: 'back.out(1.7)' },
+    )
+  }, [target])
 
   const posFromEvent = (clientX: number, clientY: number): number => {
     const svg = svgRef.current
@@ -44,7 +70,7 @@ export const Dial = ({ needlePos, target, interactive, onChange }: DialProps) =>
     const rect = svg.getBoundingClientRect()
     const sx = ((clientX - rect.left) / rect.width) * W
     const sy = ((clientY - rect.top) / rect.height) * H
-    const theta = Math.atan2(CY - sy, sx - CX) // y вниз → инвертируем
+    const theta = Math.atan2(CY - sy, sx - CX)
     const clamped = clamp(theta, 0, Math.PI)
     return clamp((1 - clamped / Math.PI) * 100, 0, 100)
   }
@@ -63,18 +89,15 @@ export const Dial = ({ needlePos, target, interactive, onChange }: DialProps) =>
     dragging.current = false
   }
 
-  const needle = pointAt(needlePos, R - 10)
-
-  // полосы мишени от центра наружу: 2-3-4-3-2
   const bands =
     target === null
       ? []
       : [
-          { lo: target - ZONE.two, hi: target - ZONE.three, color: '#f6c945' },
-          { lo: target - ZONE.three, hi: target - ZONE.four, color: '#f08a24' },
-          { lo: target - ZONE.four, hi: target + ZONE.four, color: '#e23b2e' },
-          { lo: target + ZONE.four, hi: target + ZONE.three, color: '#f08a24' },
-          { lo: target + ZONE.three, hi: target + ZONE.two, color: '#f6c945' },
+          { lo: target - ZONE.two, hi: target - ZONE.three, color: '#ffcf5c' },
+          { lo: target - ZONE.three, hi: target - ZONE.four, color: '#ff974a' },
+          { lo: target - ZONE.four, hi: target + ZONE.four, color: '#ff5747' },
+          { lo: target + ZONE.four, hi: target + ZONE.three, color: '#ff974a' },
+          { lo: target + ZONE.three, hi: target + ZONE.two, color: '#ffcf5c' },
         ]
 
   return (
@@ -87,26 +110,38 @@ export const Dial = ({ needlePos, target, interactive, onChange }: DialProps) =>
       onPointerUp={handleUp}
       onPointerCancel={handleUp}
     >
+      <defs>
+        <radialGradient id="dialface" cx="50%" cy="100%" r="100%">
+          <stop offset="0%" stopColor="#222a4d" />
+          <stop offset="100%" stopColor="#141937" />
+        </radialGradient>
+      </defs>
       {/* фон-полукруг */}
       <path
         d={`M ${CX - R} ${CY} A ${R} ${R} 0 0 1 ${CX + R} ${CY} Z`}
-        fill="#1f2540"
+        fill="url(#dialface)"
+        stroke="rgba(120,140,220,0.18)"
+        strokeWidth={1}
       />
-      {/* зона мишени */}
-      {bands.map((b, i) => (
-        <path key={i} d={wedge(b.lo, b.hi, R)} fill={b.color} />
-      ))}
-      {/* стрелка */}
-      <line
+      {/* зона мишени со свечением */}
+      <g ref={bandsRef} style={{ filter: 'drop-shadow(0 0 10px rgba(255,90,70,0.45))' }}>
+        {bands.map((b, i) => (
+          <path key={i} d={wedge(b.lo, b.hi, R)} fill={b.color} />
+        ))}
+      </g>
+      {/* стрелка с лёгким свечением */}
+      <motion.line
         x1={CX}
         y1={CY}
-        x2={needle.x}
-        y2={needle.y}
-        stroke="#e8ecff"
+        x2={nx}
+        y2={ny}
+        stroke="#eef1ff"
         strokeWidth={5}
         strokeLinecap="round"
+        style={{ filter: 'drop-shadow(0 0 6px rgba(238,241,255,0.6))' }}
       />
-      <circle cx={CX} cy={CY} r={14} fill="#e23b2e" stroke="#1f2540" strokeWidth={3} />
+      <circle cx={CX} cy={CY} r={15} fill="#ff5747" stroke="#141937" strokeWidth={3} />
+      <circle cx={CX} cy={CY} r={6} fill="#fff" opacity={0.9} />
     </svg>
   )
 }
