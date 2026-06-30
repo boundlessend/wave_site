@@ -1,8 +1,18 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { createLocalTransport, type Transport } from './net/transport.ts'
 import { createSupabaseTransport, supabaseConfigured } from './net/supabase.ts'
 import { useRoom } from './useRoom.ts'
 import { Game } from './ui/Game.tsx'
+import { BgPicker, type BgChoice } from './ui/BgPicker.tsx'
+
+// 3D-фон тяжёлый (three.js) - грузим лениво, до загрузки видна бумажная подложка body
+const Scene3D = lazy(() => import('./ui/Scene3D.tsx').then((m) => ({ default: m.Scene3D })))
+
+const BG_CHOICES: BgChoice[] = ['ridge', 'dots', 'shapes', 'wire', 'contours', 'off']
+const initialBg = (): BgChoice => {
+  const v = localStorage.getItem('wave_bg')
+  return v !== null && (BG_CHOICES as string[]).includes(v) ? (v as BgChoice) : 'ridge'
+}
 
 type RoomRef = { code: string; secret: string }
 
@@ -105,5 +115,20 @@ function Online() {
 }
 
 export default function App() {
-  return supabaseConfigured() ? <Online /> : <LocalRoom />
+  const [bg, setBg] = useState<BgChoice>(initialBg)
+  const changeBg = (v: BgChoice): void => {
+    setBg(v)
+    localStorage.setItem('wave_bg', v)
+  }
+  return (
+    <>
+      {bg !== 'off' && (
+        <Suspense fallback={null}>
+          <Scene3D variant={bg} />
+        </Suspense>
+      )}
+      <BgPicker value={bg} onChange={changeBg} />
+      {supabaseConfigured() ? <Online /> : <LocalRoom />}
+    </>
+  )
 }
