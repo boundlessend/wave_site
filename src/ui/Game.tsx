@@ -479,7 +479,7 @@ const GameOver = ({ room }: { room: Room }) => {
     let stop = false
     void import('canvas-confetti').then(({ default: confetti }) => {
       if (stop) return
-      const colors = ['#5bd6f5', '#ffb05c', '#ff5747', '#ffffff']
+      const colors = ['#c8341f', '#2b4a8f', '#16140f', '#e8b53a']
       const end = Date.now() + 900
       const tick = (): void => {
         if (stop) return

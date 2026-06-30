@@ -1,11 +1,8 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createLocalTransport, type Transport } from './net/transport.ts'
 import { createSupabaseTransport, supabaseConfigured } from './net/supabase.ts'
 import { useRoom } from './useRoom.ts'
 import { Game } from './ui/Game.tsx'
-
-// 3D-фон тяжёлый (three.js) - грузим лениво, до загрузки виден CSS-градиент body
-const Scene3D = lazy(() => import('./ui/Scene3D.tsx').then((m) => ({ default: m.Scene3D })))
 
 type RoomRef = { code: string; secret: string }
 
@@ -108,12 +105,5 @@ function Online() {
 }
 
 export default function App() {
-  return (
-    <>
-      <Suspense fallback={null}>
-        <Scene3D />
-      </Suspense>
-      {supabaseConfigured() ? <Online /> : <LocalRoom />}
-    </>
-  )
+  return supabaseConfigured() ? <Online /> : <LocalRoom />
 }

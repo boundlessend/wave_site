@@ -113,11 +113,11 @@ export const Dial = ({ needlePos, target, interactive, onChange }: DialProps) =>
     target === null
       ? []
       : [
-          { lo: target - ZONE.two, hi: target - ZONE.three, color: '#ffcf5c' },
-          { lo: target - ZONE.three, hi: target - ZONE.four, color: '#ff974a' },
-          { lo: target - ZONE.four, hi: target + ZONE.four, color: '#ff5747' },
-          { lo: target + ZONE.four, hi: target + ZONE.three, color: '#ff974a' },
-          { lo: target + ZONE.three, hi: target + ZONE.two, color: '#ffcf5c' },
+          { lo: target - ZONE.two, hi: target - ZONE.three, color: 'rgba(22,20,15,0.10)' },
+          { lo: target - ZONE.three, hi: target - ZONE.four, color: 'rgba(22,20,15,0.26)' },
+          { lo: target - ZONE.four, hi: target + ZONE.four, color: '#c8341f' },
+          { lo: target + ZONE.four, hi: target + ZONE.three, color: 'rgba(22,20,15,0.26)' },
+          { lo: target + ZONE.three, hi: target + ZONE.two, color: 'rgba(22,20,15,0.10)' },
         ]
 
   return (
@@ -143,19 +143,13 @@ export const Dial = ({ needlePos, target, interactive, onChange }: DialProps) =>
       onPointerCancel={handleUp}
       onKeyDown={handleKey}
     >
-      <defs>
-        <radialGradient id="dialface" cx="50%" cy="100%" r="100%">
-          <stop offset="0%" stopColor="#222a4d" />
-          <stop offset="100%" stopColor="#141937" />
-        </radialGradient>
-      </defs>
       <path
         d={`M ${CX - R} ${CY} A ${R} ${R} 0 0 1 ${CX + R} ${CY} Z`}
-        fill="url(#dialface)"
-        stroke="rgba(120,140,220,0.18)"
-        strokeWidth={1}
+        fill="#efe8d9"
+        stroke="#16140f"
+        strokeWidth={2}
       />
-      <g ref={bandsRef} style={{ filter: 'drop-shadow(0 0 10px rgba(255,90,70,0.45))' }}>
+      <g ref={bandsRef}>
         {bands.map((b, i) => (
           <path key={i} d={wedge(b.lo, b.hi, R)} fill={b.color} />
         ))}
@@ -165,13 +159,12 @@ export const Dial = ({ needlePos, target, interactive, onChange }: DialProps) =>
         y1={CY}
         x2={nx}
         y2={ny}
-        stroke="#eef1ff"
+        stroke="#16140f"
         strokeWidth={5}
         strokeLinecap="round"
-        style={{ filter: 'drop-shadow(0 0 6px rgba(238,241,255,0.6))' }}
       />
-      <circle cx={CX} cy={CY} r={15} fill="#ff5747" stroke="#141937" strokeWidth={3} />
-      <circle cx={CX} cy={CY} r={6} fill="#fff" opacity={0.9} />
+      <circle cx={CX} cy={CY} r={15} fill="#16140f" stroke="#ece8df" strokeWidth={3} />
+      <circle cx={CX} cy={CY} r={6} fill="#c8341f" />
     </svg>
   )
 }

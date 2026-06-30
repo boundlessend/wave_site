@@ -1,95 +1,86 @@
+/* эдиториал: жёсткая сетка, линии-разделители, моноширинные подписи, сериф для подсказки */
+
 .panel {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 18px;
-  padding: 20px;
+  background: var(--paper);
+  border: 2px solid var(--border);
+  border-radius: 2px;
+  padding: 22px;
   margin-bottom: 16px;
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 8px 24px rgba(22, 20, 15, 0.06);
 }
 
 .panel h1 {
-  font-size: 34px;
-  margin: 0 0 16px;
-  background: linear-gradient(120deg, #fff, var(--left));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  font-size: 38px;
+  line-height: 1.02;
+  margin: 0 0 18px;
+  color: var(--text);
 }
 
 .dial-wrap {
-  background:
-    radial-gradient(120% 90% at 50% 100%, rgba(124, 92, 255, 0.18), transparent 60%),
-    var(--panel-2);
-  border: 1px solid var(--border);
-  border-radius: 18px;
-  padding: 16px;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  background: var(--paper);
+  border: 2px solid var(--border);
+  border-radius: 2px;
+  padding: 18px 18px 14px;
 }
 
 .poles {
   display: flex;
   justify-content: space-between;
-  gap: 10px;
-  margin-top: 10px;
+  gap: 12px;
+  margin-top: 8px;
 }
 
 .pole {
   flex: 1;
-  text-align: center;
-  padding: 12px;
-  border-radius: 12px;
+  padding: 10px 2px 0;
   font-weight: 600;
-  background: rgba(10, 14, 30, 0.5);
-  border: 1px solid var(--border);
+  font-size: 14px;
+  border-top: 3px solid var(--border);
 }
 
 .pole.l {
-  border-bottom: 3px solid var(--left);
-  box-shadow: inset 0 -16px 24px -16px var(--left);
+  border-top-color: var(--left);
+  text-align: left;
 }
 
 .pole.r {
-  border-bottom: 3px solid var(--right);
-  box-shadow: inset 0 -16px 24px -16px var(--right);
+  border-top-color: var(--right);
+  text-align: right;
 }
 
 .btn {
-  border: none;
-  border-radius: 12px;
-  padding: 13px 18px;
-  background: linear-gradient(135deg, #ff6a5c, var(--accent));
-  color: #fff;
+  border: 2px solid var(--border);
+  border-radius: 2px;
+  padding: 14px 18px;
+  background: var(--text);
+  color: var(--bg);
   font-weight: 700;
-  box-shadow: 0 8px 24px -6px var(--accent-glow);
   transition:
-    transform 0.12s ease,
-    box-shadow 0.2s ease,
-    filter 0.2s ease;
+    background 0.15s ease,
+    color 0.15s ease,
+    transform 0.1s ease;
 }
 
 .btn:hover:not(:disabled) {
-  filter: brightness(1.08);
-  box-shadow: 0 10px 30px -6px var(--accent-glow);
+  background: #2c2820;
 }
 
 .btn:active:not(:disabled) {
-  transform: scale(0.97);
+  transform: translateY(1px);
 }
 
 .btn:disabled {
   opacity: 0.35;
   cursor: not-allowed;
-  box-shadow: none;
 }
 
 .btn.ghost {
-  background: rgba(46, 56, 99, 0.5);
+  background: transparent;
   color: var(--text);
-  border: 1px solid var(--border);
-  box-shadow: none;
+}
+
+.btn.ghost:hover:not(:disabled) {
+  background: rgba(22, 20, 15, 0.06);
 }
 
 .btn.wide {
@@ -105,59 +96,56 @@
 .field {
   width: 100%;
   padding: 13px;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  background: rgba(10, 14, 30, 0.5);
+  border: 2px solid var(--border);
+  border-radius: 2px;
+  background: #fffdf8;
   color: var(--text);
-  transition: border-color 0.2s ease;
+  transition: border-color 0.15s ease;
+}
+
+.field::placeholder {
+  color: #9a948a;
 }
 
 .field:focus {
   outline: none;
-  border-color: var(--left);
+  border-color: var(--accent);
 }
 
 .scores {
   display: flex;
-  gap: 12px;
+  gap: 0;
   margin-bottom: 16px;
+  border: 2px solid var(--border);
+  border-radius: 2px;
+  background: var(--paper);
 }
 
 .score {
   flex: 1;
   text-align: center;
   padding: 14px 12px;
-  border-radius: 14px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  transition:
-    box-shadow 0.3s ease,
-    transform 0.3s ease;
+  border-right: 2px solid var(--border);
+}
+
+.score:last-child {
+  border-right: none;
 }
 
 .score b {
   font-family: var(--display);
-  font-size: 30px;
+  font-size: 34px;
   display: block;
-  line-height: 1.1;
+  line-height: 1;
+  margin-bottom: 4px;
 }
 
-.score.left {
-  border-top: 3px solid var(--left);
+.score.active {
+  background: var(--text);
 }
 
-.score.right {
-  border-top: 3px solid var(--right);
-}
-
-.score.active.left {
-  box-shadow: 0 0 0 1px var(--left), 0 0 28px -6px var(--left);
-}
-
-.score.active.right {
-  box-shadow: 0 0 0 1px var(--right), 0 0 28px -6px var(--right);
+.score.active .muted {
+  color: #c9c3b6;
 }
 
 .muted {
@@ -166,71 +154,75 @@
 
 .tag {
   display: inline-block;
-  padding: 4px 12px;
-  border-radius: 999px;
-  background: rgba(46, 56, 99, 0.5);
+  padding: 5px 10px;
   border: 1px solid var(--border);
-  font-size: 14px;
+  border-radius: 2px;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+
+.tag b {
+  letter-spacing: 0.08em;
 }
 
 .clue {
-  font-family: var(--display);
-  font-size: 24px;
+  font-family: var(--serif);
+  font-size: 26px;
   font-weight: 600;
   text-align: center;
-  margin: 6px 0 12px;
-  text-shadow: 0 0 24px rgba(91, 214, 245, 0.35);
+  margin: 6px 0 14px;
+  line-height: 1.15;
 }
 
 .chip {
-  padding: 7px 13px;
-  border-radius: 999px;
+  padding: 8px 14px;
   border: 1px solid var(--border);
-  background: rgba(46, 56, 99, 0.35);
+  border-radius: 2px;
+  background: transparent;
   color: var(--text);
+  font-size: 14px;
   transition:
     background 0.15s ease,
-    transform 0.12s ease;
+    color 0.15s ease;
 }
 
 .chip:hover {
-  background: rgba(46, 56, 99, 0.7);
-}
-
-.chip:active {
-  transform: scale(0.95);
+  background: rgba(22, 20, 15, 0.06);
 }
 
 .chip.on {
   background: var(--text);
   color: var(--bg);
-  border-color: var(--text);
 }
 
 .players {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
-  margin: 12px 0;
+  margin: 14px 0;
 }
 
 .players .col {
-  background: rgba(10, 14, 30, 0.4);
-  border: 1px solid var(--border);
-  border-radius: 14px;
+  border: 2px solid var(--border);
+  border-radius: 2px;
   padding: 14px;
   min-height: 84px;
+  background: var(--paper);
 }
 
 .players .col h3 {
-  margin: 0 0 8px;
-  font-size: 15px;
-  font-family: var(--display);
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .devbar {
   font-size: 13px;
   color: var(--muted);
+  font-family: var(--mono);
   display: flex;
   gap: 6px;
   align-items: center;
@@ -240,48 +232,57 @@
 
 .turn-banner {
   text-align: center;
-  font-family: var(--display);
-  font-weight: 800;
-  letter-spacing: 1px;
+  font-family: var(--mono);
+  font-weight: 600;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: #fff;
-  background: linear-gradient(135deg, #ff6a5c, var(--accent));
-  border-radius: 14px;
-  padding: 12px;
+  font-size: 14px;
+  color: var(--bg);
+  background: var(--text);
+  border-radius: 2px;
+  padding: 13px;
   margin-bottom: 14px;
-  box-shadow: 0 0 30px -4px var(--accent-glow);
 }
 
 .rules {
-  margin: 12px 0 4px;
-  padding-left: 20px;
-  color: var(--muted);
+  margin: 14px 0 4px;
+  padding-left: 22px;
+  color: var(--text);
   font-size: 14px;
-  line-height: 1.6;
+  line-height: 1.7;
+}
+
+.rules li {
+  margin-bottom: 4px;
+}
+
+.rules li::marker {
+  font-family: var(--display);
+  color: var(--accent);
 }
 
 .conn {
   text-align: center;
+  font-family: var(--mono);
   font-size: 13px;
   padding: 8px;
-  border-radius: 10px;
+  border: 1px solid var(--border);
+  border-radius: 2px;
   margin-bottom: 12px;
 }
 
 .conn.connecting {
-  background: rgba(46, 56, 99, 0.5);
   color: var(--muted);
 }
 
 .conn.error {
-  background: rgba(255, 87, 71, 0.18);
-  color: #ffb4ab;
-  border: 1px solid var(--accent);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 .footer {
   text-align: center;
-  margin-top: 20px;
+  margin-top: 22px;
 }
 
 .footer .chip {
@@ -290,14 +291,19 @@
 }
 
 @media (max-width: 480px) {
+  .panel {
+    padding: 18px;
+  }
   .panel h1 {
-    font-size: 28px;
+    font-size: 30px;
   }
   .clue {
-    font-size: 20px;
+    font-size: 22px;
   }
   .pole {
-    font-size: 14px;
-    padding: 10px;
+    font-size: 13px;
+  }
+  .score b {
+    font-size: 28px;
   }
 }
