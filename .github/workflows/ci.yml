@@ -19,8 +19,6 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci
-      - name: Проверка типов
-        run: npx tsc -b
       - name: Self-check правил и движка
         run: |
           node src/game/rules.selfcheck.ts

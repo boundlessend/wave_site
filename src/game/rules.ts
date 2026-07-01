@@ -83,7 +83,7 @@ export const keepsTurn = (params: {
 }
 
 // победитель после раунда: игра кончается когда кто-то набрал WIN_SCORE+,
-// побеждает команда с большим счётом; равенство на вершине → доигрываем
+// побеждает команда с большим счётом; равные счёты на вершине → ничья (gameover)
 export const checkWinner = (scores: Scores): TeamId | 'tie' | null => {
   if (scores.left < WIN_SCORE && scores.right < WIN_SCORE) return null
   if (scores.left === scores.right) return 'tie'
