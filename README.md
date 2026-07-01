@@ -20,7 +20,7 @@
 
 ## Стек
 
-React + Vite + TypeScript. Realtime: Supabase (broadcast + presence). Анимации: Motion + GSAP. 3D-фон: Three.js (свои сцены в `src/ui/Scene3D.tsx`, грузится лениво отдельным чанком). Логика игры - чистые функции (`src/game/`), транспорт абстрагирован (`src/net/`, локальный и Supabase).
+React + Vite + TypeScript (strict). Realtime: Supabase Realtime через `@supabase/realtime-js` (broadcast + presence). Анимации: Motion + GSAP. 3D-фон: Three.js (свои сцены в `src/ui/Scene3D.tsx`, грузится лениво отдельным чанком). Логика игры - чистые функции (`src/game/`), транспорт абстрагирован (`src/net/`, локальный и Supabase).
 
 ## Разработка
 
