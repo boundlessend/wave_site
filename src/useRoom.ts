@@ -7,7 +7,14 @@ import { pickCard, pickPsychic } from './game/orchestrate.ts'
 
 // зерно нового раунда с валидной (непустой) командой и телепатом
 const buildSeed = (s: GameState, preferred: TeamId): RoundSeed | null => {
-  const team = teamWithPlayers(s, s.mode === 'coop' ? 'left' : preferred)
+  if (s.mode === 'coop') {
+    // startGame переносит всех в 'left'; телепат из всех игроков, ход всегда за 'left'
+    const asLeft = s.players.map((p) => ({ ...p, team: 'left' as TeamId }))
+    const psychicId = pickPsychic(asLeft, 'left', s.round?.psychicId ?? '')
+    if (psychicId === '') return null
+    return { activeTeam: 'left', psychicId, card: pickCard() }
+  }
+  const team = teamWithPlayers(s, preferred)
   if (team === null) return null
   const psychicId = pickPsychic(s.players, team, s.round?.psychicId ?? '')
   if (psychicId === '') return null
@@ -41,7 +48,16 @@ export const useRoom = (transport: Transport) => {
     }
   }, [state.phase, state.roundNo, state.round, me])
 
-  // авто-восстановление: телепат вышел посреди раунда → пропускаем раунд
+  // сброс секрета при возврате в лобби: иначе он переиспользуется на roundNo=1 новой игры
+  useEffect(() => {
+    if (state.phase === 'lobby') {
+      secretRound.current = -1
+      setSecret(null)
+    }
+  }, [state.phase])
+
+  // авто-восстановление: раунд не может продолжиться (вышел телепат или вся
+  // вторая команда покинула фазу слева/справа) → пропускаем раунд
   useEffect(() => {
     const r = state.round
     const inRound =
@@ -50,7 +66,12 @@ export const useRoom = (transport: Transport) => {
       state.phase === 'leftright' ||
       state.phase === 'await_reveal'
     if (!r || !inRound) return
-    if (state.players.some((p) => p.id === r.psychicId)) return // телепат на месте
+    const psychicGone = !state.players.some((p) => p.id === r.psychicId)
+    const secondTeamGone =
+      state.mode === 'versus' &&
+      state.phase === 'leftright' &&
+      !state.players.some((p) => p.team !== r.activeTeam)
+    if (!psychicGone && !secondTeamGone) return
     const seed = buildSeed(state, r.activeTeam)
     if (seed) d({ type: 'skipRound', seed, fromRoundNo: state.roundNo })
     else d({ type: 'toLobby' })
