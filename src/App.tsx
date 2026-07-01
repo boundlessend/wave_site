@@ -17,8 +17,9 @@ const initialBg = (): BgChoice => {
 type RoomRef = { code: string; secret: string }
 
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+// код комнаты (не секрет, а имя канала): CSPRNG; смещение по модулю пренебрежимо
 const genCode = (): string =>
-  Array.from({ length: 6 }, () => ALPHABET[Math.floor(Math.random() * ALPHABET.length)]).join('')
+  Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => ALPHABET[b % ALPHABET.length]).join('')
 
 // секрет комнаты: 16 случайных байт в base64url, живёт только в hash ссылки
 const genSecret = (): string => {
@@ -32,7 +33,8 @@ const parseInvite = (input: string): RoomRef | null => {
     const u = new URL(input.trim(), window.location.origin)
     const code = u.searchParams.get('room')?.toUpperCase()
     if (!code) return null
-    const secret = new URLSearchParams(u.hash.replace(/^#/, '')).get('k') ?? ''
+    const secret = new URLSearchParams(u.hash.replace(/^#/, '')).get('k')
+    if (!secret) return null // ссылка без секрета → другой HMAC-ключ, тихий рассинхрон
     return { code, secret }
   } catch {
     return null

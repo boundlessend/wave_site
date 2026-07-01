@@ -140,9 +140,10 @@ export const reduce = (state: GameState, action: Action): GameState => {
       }
     }
     case 'submitClue': {
-      // только телепат активной команды
+      // только телепат активной команды, непустая подсказка
       if (!state.round || state.phase !== 'psychic') return state
       if (action.actorId !== state.round.psychicId) return state
+      if (action.clue.trim().length === 0) return state
       return {
         ...state,
         phase: 'team',
@@ -153,7 +154,8 @@ export const reduce = (state: GameState, action: Action): GameState => {
       // только игроки активной команды
       if (!state.round || state.phase !== 'team') return state
       if (teamOf(state, action.actorId) !== state.round.activeTeam) return state
-      return { ...state, round: { ...state.round, needlePos: action.pos } }
+      const pos = Math.max(0, Math.min(100, action.pos))
+      return { ...state, round: { ...state.round, needlePos: pos } }
     }
     case 'lockNeedle': {
       if (!state.round || state.phase !== 'team') return state
@@ -215,6 +217,9 @@ export const reduce = (state: GameState, action: Action): GameState => {
       return { ...state, phase: 'lobby', round: null }
     case 'reset':
       return { ...initialState, players: state.players, mode: state.mode }
+    default:
+      // неизвестный тип (рассинхрон версий/подделка из сети) не должен обнулять стол
+      return state
   }
 }
 

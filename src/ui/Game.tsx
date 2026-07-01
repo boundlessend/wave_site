@@ -42,9 +42,13 @@ const Lobby = ({ room, dev, roomCode }: { room: Room; dev: boolean; roomCode: st
     : teamCount(state, 'left') >= 1 && teamCount(state, 'right') >= 1
 
   const shareLink = (): void => {
-    void navigator.clipboard.writeText(window.location.href)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+    navigator.clipboard.writeText(window.location.href).then(
+      () => {
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
+      },
+      () => undefined, // нет разрешения/insecure context: не показываем «скопировано»
+    )
   }
   const tryJoin = (): void => {
     if (name.trim().length > 0) actions.join(name.trim(), 'left')
