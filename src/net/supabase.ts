@@ -2,7 +2,7 @@
 // безопасность: все broadcast-сообщения и presence подписаны HMAC секретом комнаты.
 // секрет приходит из ссылки-приглашения (hash) и НЕ передаётся по сети —
 // чужой, знающий лишь код комнаты, не сможет подделать состояние/действия/host.
-import { createClient } from '@supabase/supabase-js'
+import { RealtimeClient } from '@supabase/realtime-js'
 import type { ConnStatus, Transport } from './transport.ts'
 import { reduce, initialState, type Action } from '../game/engine.ts'
 import type { GameState } from '../game/types.ts'
@@ -13,7 +13,10 @@ const KEY = import.meta.env.VITE_SUPABASE_KEY as string | undefined
 export const supabaseConfigured = (): boolean =>
   typeof URL === 'string' && /supabase\.co/.test(URL) && typeof KEY === 'string' && KEY.length > 0
 
-const supabase = supabaseConfigured() ? createClient(URL as string, KEY as string) : null
+// только Realtime (broadcast + presence) — без auth/postgrest/storage из полного supabase-js
+const supabase = supabaseConfigured()
+  ? new RealtimeClient(`${URL as string}/realtime/v1`, { params: { apikey: KEY as string } })
+  : null
 
 type Presence = { clientId: string; joinedAt: number; playerId: string | null; auth: string }
 
