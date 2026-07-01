@@ -225,7 +225,7 @@ export const Scene3D = ({ variant }: { variant: BgVariant }) => {
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     const mobile = window.matchMedia('(max-width: 700px)').matches
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
+    const renderer = new THREE.WebGLRenderer({ antialias: !mobile, alpha: true })
     renderer.setPixelRatio(Math.min(2, window.devicePixelRatio))
     const canvas = renderer.domElement
     canvas.style.width = '100%'
@@ -263,9 +263,14 @@ export const Scene3D = ({ variant }: { variant: BgVariant }) => {
       renderer.render(scene, camera)
     }
 
+    // фон не нуждается в 60/120 fps: троттлим до ~30 (экономия CPU/GPU/батареи)
+    const FRAME_MS = 1000 / 30
     let raf = 0
-    const loop = (): void => {
+    let last = 0
+    const loop = (now: number): void => {
       raf = requestAnimationFrame(loop)
+      if (now - last < FRAME_MS) return
+      last = now
       renderFrame(clock.getElapsedTime())
     }
     const onVisibility = (): void => {
@@ -275,7 +280,7 @@ export const Scene3D = ({ variant }: { variant: BgVariant }) => {
           raf = 0
         }
       } else if (!raf) {
-        loop()
+        raf = requestAnimationFrame(loop)
       }
     }
 
@@ -283,7 +288,7 @@ export const Scene3D = ({ variant }: { variant: BgVariant }) => {
       renderFrame(0) // статичный кадр, без анимации (prefers-reduced-motion)
     } else {
       document.addEventListener('visibilitychange', onVisibility)
-      loop()
+      raf = requestAnimationFrame(loop)
     }
 
     return () => {
