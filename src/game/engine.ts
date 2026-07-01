@@ -23,6 +23,11 @@ import {
 
 export const COOP_DECK = 7
 
+// границы пользовательского ввода на хосте (UI ограничивает, но сеть — нет)
+const MAX_NAME = 20
+const MAX_CLUE = 60
+const clampText = (s: string, max: number): string => s.slice(0, max)
+
 // зерно нового раунда. БЕЗ мишени: её знает только телепат до раскрытия
 export type RoundSeed = {
   readonly activeTeam: TeamId
@@ -105,7 +110,8 @@ export const reduce = (state: GameState, action: Action): GameState => {
   switch (action.type) {
     case 'join': {
       if (state.players.some((p) => p.id === action.player.id)) return state
-      return { ...state, players: [...state.players, action.player] }
+      const player = { ...action.player, name: clampText(action.player.name, MAX_NAME) }
+      return { ...state, players: [...state.players, player] }
     }
     case 'leave':
       return {
@@ -147,7 +153,7 @@ export const reduce = (state: GameState, action: Action): GameState => {
       return {
         ...state,
         phase: 'team',
-        round: { ...state.round, clue: action.clue },
+        round: { ...state.round, clue: clampText(action.clue, MAX_CLUE) },
       }
     }
     case 'moveNeedle': {

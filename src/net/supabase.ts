@@ -59,20 +59,38 @@ export const createSupabaseTransport = (opts: { code: string; secret: string }):
     }
   }
   const signData = (data: unknown): Promise<string> => hmac(enc.encode(JSON.stringify(data)))
-  const verifyData = async (msg: { d?: unknown; s?: unknown }): Promise<boolean> =>
-    typeof msg?.s === 'string' && verifyHmac(enc.encode(JSON.stringify(msg.d)), msg.s)
+  // конверт: подпись покрывает тип события, код комнаты, отправителя и время
+  // (нельзя переслать чужое сообщение под другим типом); seen + свежесть отсекают replay
+  const SKEW_MS = 60_000
+  const seen = new Map<string, number>()
+  type Envelope = { e: string; c: string; cid: string; t: number; d: unknown; s?: string }
+  const verifyEnvelope = async (event: string, p: Envelope | undefined): Promise<boolean> => {
+    if (!p || typeof p.s !== 'string') return false
+    if (p.e !== event || p.c !== opts.code) return false
+    if (typeof p.t !== 'number' || Math.abs(Date.now() - p.t) > SKEW_MS) return false
+    if (seen.has(p.s)) return false
+    const body = JSON.stringify({ e: p.e, c: p.c, cid: p.cid, t: p.t, d: p.d })
+    if (!(await verifyHmac(enc.encode(body), p.s))) return false
+    const now = Date.now()
+    seen.set(p.s, now)
+    for (const [k, ts] of seen) if (now - ts > SKEW_MS) seen.delete(k)
+    return true
+  }
 
   const channel = supabase.channel(`room-${opts.code}`, {
     config: { broadcast: { self: false }, presence: { key: clientId } },
   })
 
-  // presence с подписью clientId — чужой без секрета не попадёт в выбор host
+  // presence подписывает весь рекорд (clientId+joinedAt+playerId) — поля нельзя подменить
+  const presenceAuth = (playerId: string | null): Promise<string> =>
+    hmac(enc.encode(JSON.stringify({ clientId, joinedAt, playerId })))
   const track = async (): Promise<void> => {
-    const auth = await hmac(enc.encode(clientId))
+    const auth = await presenceAuth(myPlayerId)
     void channel.track({ clientId, joinedAt, playerId: myPlayerId, auth } satisfies Presence)
   }
   const emit = (event: string, data: unknown): void => {
-    void signData(data).then((s) => channel.send({ type: 'broadcast', event, payload: { d: data, s } }))
+    const env = { e: event, c: opts.code, cid: clientId, t: Date.now(), d: data }
+    void signData(env).then((s) => channel.send({ type: 'broadcast', event, payload: { ...env, s } }))
   }
   const sendState = (): void => emit('state', state)
   const sendAction = (action: Action): void => emit('action', action)
@@ -91,8 +109,42 @@ export const createSupabaseTransport = (opts: { code: string; secret: string }):
   }
   const verifyAuth = (p: Presence): Promise<boolean> =>
     typeof p?.auth === 'string' && typeof p?.clientId === 'string'
-      ? verifyHmac(enc.encode(p.clientId), p.auth)
+      ? verifyHmac(
+          enc.encode(JSON.stringify({ clientId: p.clientId, joinedAt: p.joinedAt, playerId: p.playerId })),
+          p.auth,
+        )
       : Promise.resolve(false)
+
+  const roleActions = new Set<Action['type']>(['submitClue', 'moveNeedle', 'lockNeedle', 'submitSide', 'reveal'])
+  // playerId, привязанный к валидной presence отправителя (по его clientId)
+  const playerIdForClient = async (cid: string): Promise<string | null> => {
+    const p = (channel.presenceState() as Record<string, Presence[]>)[cid]?.[0]
+    return p && (await verifyAuth(p)) ? p.playerId : null
+  }
+
+  // грубый лимит входящих сообщений (анти-флуд/CPU-DoS у хоста)
+  const RATE_MAX = 80
+  let winStart = 0
+  let winCount = 0
+  const rateOk = (): boolean => {
+    const now = performance.now()
+    if (now - winStart > 1000) {
+      winStart = now
+      winCount = 0
+    }
+    winCount += 1
+    return winCount <= RATE_MAX
+  }
+
+  // ответ на hello коалесцируем — иначе флуд hello усиливается в рассылку полного state
+  let helloTimer: ReturnType<typeof setTimeout> | null = null
+  const scheduleHelloState = (): void => {
+    if (helloTimer) return
+    helloTimer = setTimeout(() => {
+      helloTimer = null
+      if (amHost) sendState()
+    }, 250)
+  }
 
   // хост = самый ранний присутствующий С ВАЛИДНОЙ подписью (чужой не захватит/не застопорит)
   const recomputeHost = async (): Promise<void> => {
@@ -125,25 +177,31 @@ export const createSupabaseTransport = (opts: { code: string; secret: string }):
   })
 
   channel.on('broadcast', { event: 'action' }, ({ payload }) => {
-    if (!amHost) return
-    void verifyData(payload).then((ok) => {
+    if (!amHost || !rateOk()) return
+    const env = payload as Envelope
+    void verifyEnvelope('action', env).then(async (ok) => {
       if (!ok) return
-      const action = (payload as { d: Action }).d
+      const action = env.d as Action
       if (action.type === 'leave') return // host-internal, из сети не принимаем
+      // роль актёра должна принадлежать устройству-отправителю (по подписанной presence)
+      if (roleActions.has(action.type) && 'actorId' in action) {
+        const boundPid = await playerIdForClient(env.cid)
+        if (boundPid !== null && action.actorId !== boundPid) return
+      }
       applyAsHost(action)
     })
   })
   channel.on('broadcast', { event: 'state' }, ({ payload }) => {
-    if (amHost) return
-    void verifyData(payload).then((ok) => {
+    if (amHost || !rateOk()) return
+    void verifyEnvelope('state', payload as Envelope).then((ok) => {
       if (!ok) return
-      state = (payload as { d: GameState }).d
+      state = (payload as Envelope).d as GameState
       notify()
     })
   })
   channel.on('broadcast', { event: 'hello' }, ({ payload }) => {
-    if (!amHost) return
-    void verifyData(payload).then((ok) => ok && sendState())
+    if (!amHost || !rateOk()) return
+    void verifyEnvelope('hello', payload as Envelope).then((ok) => ok && scheduleHelloState())
   })
 
   channel.subscribe((status) => {
@@ -205,6 +263,7 @@ export const createSupabaseTransport = (opts: { code: string; secret: string }):
     },
     dispose: () => {
       if (timer) clearTimeout(timer)
+      if (helloTimer) clearTimeout(helloTimer)
       subs.clear()
       statusSubs.clear()
       void supabase.removeChannel(channel)
