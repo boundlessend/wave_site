@@ -19,6 +19,8 @@ import {
   keepsTurn,
   otherTeam,
   scoreVersusRound,
+  TARGET_MAX,
+  TARGET_MIN,
 } from './rules.ts'
 
 export const COOP_DECK = 7
@@ -39,14 +41,16 @@ export type RoundSeed = {
 export type Action =
   | { type: 'join'; player: Player }
   | { type: 'leave'; playerId: string }
-  | { type: 'setTeam'; playerId: string; team: TeamId }
+  | { type: 'setTeam'; actorId: string; team: TeamId }
+  | { type: 'kick'; actorId: string; playerId: string }
   | { type: 'setMode'; mode: GameMode }
   | { type: 'startGame'; seed: RoundSeed }
+  | { type: 'commitTarget'; actorId: string; commit: string }
   | { type: 'submitClue'; actorId: string; clue: string }
   | { type: 'moveNeedle'; actorId: string; pos: number }
   | { type: 'lockNeedle'; actorId: string }
   | { type: 'submitSide'; actorId: string; side: Side }
-  | { type: 'reveal'; actorId: string; target: number }
+  | { type: 'reveal'; actorId: string; target: number; nonce: string }
   | { type: 'nextRound'; seed: RoundSeed; fromRoundNo: number }
   | { type: 'skipRound'; seed: RoundSeed; fromRoundNo: number } // принудительно (выход телепата/тупик)
   | { type: 'toLobby' }
@@ -71,6 +75,7 @@ const startRound = (seed: RoundSeed): Round => ({
   psychicId: seed.psychicId,
   card: seed.card,
   clue: '',
+  commit: null, // телепат пришлёт хеш мишени отдельным действием
   target: null, // станет известна только при reveal
   needlePos: 50,
   leftRightGuess: null,
@@ -119,11 +124,21 @@ export const reduce = (state: GameState, action: Action): GameState => {
         players: state.players.filter((p) => p.id !== action.playerId),
       }
     case 'setTeam':
+      // только свою команду и только в лобби (смена команды в раунде ломает роли)
+      if (state.phase !== 'lobby') return state
       return {
         ...state,
         players: state.players.map((p) =>
-          p.id === action.playerId ? { ...p, team: action.team } : p,
+          p.id === action.actorId ? { ...p, team: action.team } : p,
         ),
+      }
+    case 'kick':
+      // выгнать из лобби может любой участник комнаты (модель доверия); себя — это «выйти»
+      if (state.phase !== 'lobby') return state
+      if (!state.players.some((p) => p.id === action.actorId)) return state
+      return {
+        ...state,
+        players: state.players.filter((p) => p.id !== action.playerId),
       }
     case 'setMode':
       if (state.phase !== 'lobby') return state
@@ -145,6 +160,17 @@ export const reduce = (state: GameState, action: Action): GameState => {
         roundNo: 1,
       }
     }
+    case 'commitTarget': {
+      // телепат фиксирует хеш мишени один раз, до подсказки
+      if (!state.round || state.phase !== 'psychic') return state
+      if (action.actorId !== state.round.psychicId) return state
+      if (state.round.commit !== null) return state
+      if (typeof action.commit !== 'string' || action.commit.length === 0) return state
+      return {
+        ...state,
+        round: { ...state.round, commit: clampText(action.commit, 64) },
+      }
+    }
     case 'submitClue': {
       // только телепат активной команды, непустая подсказка
       if (!state.round || state.phase !== 'psychic') return state
@@ -160,6 +186,7 @@ export const reduce = (state: GameState, action: Action): GameState => {
       // только игроки активной команды
       if (!state.round || state.phase !== 'team') return state
       if (teamOf(state, action.actorId) !== state.round.activeTeam) return state
+      if (!Number.isFinite(action.pos)) return state
       const pos = Math.max(0, Math.min(100, action.pos))
       return { ...state, round: { ...state.round, needlePos: pos } }
     }
@@ -181,10 +208,14 @@ export const reduce = (state: GameState, action: Action): GameState => {
       }
     }
     case 'reveal': {
-      // только телепат раскрывает мишень
+      // только телепат раскрывает мишень, и только если она была зафиксирована
+      // (соответствие хеша проверяет хост до dispatch — редьюсер синхронный)
       if (!state.round || state.phase !== 'await_reveal') return state
       if (action.actorId !== state.round.psychicId) return state
-      const round = { ...state.round, target: action.target }
+      if (state.round.commit === null) return state
+      if (!Number.isFinite(action.target)) return state
+      const target = Math.max(TARGET_MIN, Math.min(TARGET_MAX, action.target))
+      const round = { ...state.round, target }
       const r = applyReveal(state, round)
       return {
         ...state,

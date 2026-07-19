@@ -30,6 +30,8 @@ export type Round = {
   readonly psychicId: string
   readonly card: Card
   readonly clue: string
+  // хеш-обязательство телепата на мишень (commit-reveal): без него reveal не принимается
+  readonly commit: string | null
   // центр мишени 0..100. null пока телепат не "открыл экран":
   // секрет живёт только на устройстве телепата и уходит в сеть лишь при reveal
   readonly target: number | null

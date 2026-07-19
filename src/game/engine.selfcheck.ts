@@ -1,6 +1,7 @@
 // self-check движка: `node src/game/engine.selfcheck.ts`
 import assert from 'node:assert/strict'
 import { reduce, initialState, nextActiveTeam, teamWithPlayers, type Action } from './engine.ts'
+import { TARGET_MAX } from './rules.ts'
 import type { GameState } from './types.ts'
 
 const run = (state: GameState, actions: readonly Action[]): GameState =>
@@ -17,6 +18,13 @@ let s = run(initialState, [
 ])
 assert.equal(s.phase, 'psychic')
 assert.equal(s.round?.target, null, 'мишень скрыта до раскрытия')
+assert.equal(s.round?.commit, null)
+
+// commit-reveal: чужой commit отклонён, свой фиксируется ровно один раз
+assert.equal(reduce(s, { type: 'commitTarget', actorId: 'b', commit: 'x' }).round?.commit, null, 'чужой commitTarget отклонён')
+s = reduce(s, { type: 'commitTarget', actorId: 'a', commit: 'h1' })
+assert.equal(s.round?.commit, 'h1')
+assert.equal(reduce(s, { type: 'commitTarget', actorId: 'a', commit: 'h2' }).round?.commit, 'h1', 'повторный commit отклонён')
 
 // роль: не-телепат не может дать подсказку
 assert.equal(reduce(s, { type: 'submitClue', actorId: 'b', clue: 'x' }).phase, 'psychic', 'чужой submitClue отклонён')
@@ -36,8 +44,8 @@ assert.equal(s.phase, 'await_reveal')
 assert.deepEqual(s.scores, { left: 0, right: 0 }, 'до раскрытия очки не начислены')
 
 // роль: не-телепат не раскрывает
-assert.equal(reduce(s, { type: 'reveal', actorId: 'b', target: 50 }).phase, 'await_reveal', 'чужой reveal отклонён')
-s = reduce(s, { type: 'reveal', actorId: 'a', target: 50 })
+assert.equal(reduce(s, { type: 'reveal', actorId: 'b', target: 50, nonce: 'n' }).phase, 'await_reveal', 'чужой reveal отклонён')
+s = reduce(s, { type: 'reveal', actorId: 'a', target: 50, nonce: 'n' })
 assert.deepEqual(s.scores, { left: 4, right: 0 }, 'центр: вторая команда 0')
 assert.equal(s.phase, 'reveal')
 
@@ -56,14 +64,56 @@ let catchup = run(initialState, [
 ])
 catchup = { ...catchup, scores: { left: 0, right: 6 } }
 catchup = run(catchup, [
+  { type: 'commitTarget', actorId: 'a', commit: 'h' },
   { type: 'submitClue', actorId: 'a', clue: 'к' },
   { type: 'moveNeedle', actorId: 'a', pos: 50 },
   { type: 'lockNeedle', actorId: 'a' },
   { type: 'submitSide', actorId: 'b', side: 'LEFT' },
-  { type: 'reveal', actorId: 'a', target: 50 },
+  { type: 'reveal', actorId: 'a', target: 50, nonce: 'n' },
 ])
 assert.deepEqual(catchup.scores, { left: 4, right: 6 })
 assert.equal(nextActiveTeam(catchup), 'left', 'набрала 4 и проигрывает → ходит снова')
+
+// --- reveal без commit отклоняется, мишень клампится к шкале ---
+let nc = run(initialState, [
+  { type: 'join', player: { id: 'a', name: 'А', team: 'left' } },
+  { type: 'join', player: { id: 'b', name: 'Б', team: 'right' } },
+  { type: 'startGame', seed: { activeTeam: 'left', psychicId: 'a', card } },
+  { type: 'submitClue', actorId: 'a', clue: 'к' },
+  { type: 'moveNeedle', actorId: 'a', pos: 50 },
+  { type: 'lockNeedle', actorId: 'a' },
+  { type: 'submitSide', actorId: 'b', side: 'LEFT' },
+])
+assert.equal(reduce(nc, { type: 'reveal', actorId: 'a', target: 50, nonce: 'n' }).phase, 'await_reveal', 'reveal без commit отклонён')
+nc = run(nc, [{ type: 'toLobby' }, { type: 'startGame', seed: { activeTeam: 'left', psychicId: 'a', card } }])
+nc = run(nc, [
+  { type: 'commitTarget', actorId: 'a', commit: 'h' },
+  { type: 'submitClue', actorId: 'a', clue: 'к' },
+  { type: 'moveNeedle', actorId: 'a', pos: 50 },
+  { type: 'lockNeedle', actorId: 'a' },
+  { type: 'submitSide', actorId: 'b', side: 'LEFT' },
+  { type: 'reveal', actorId: 'a', target: 999, nonce: 'n' },
+])
+assert.equal(nc.round?.target, TARGET_MAX, 'мишень клампится к границе шкалы')
+
+// --- setTeam/kick: только в лобби, setTeam только себе ---
+const lob = run(initialState, [
+  { type: 'join', player: { id: 'a', name: 'А', team: 'left' } },
+  { type: 'join', player: { id: 'b', name: 'Б', team: 'right' } },
+])
+assert.equal(
+  reduce(lob, { type: 'setTeam', actorId: 'a', team: 'right' }).players.find((p) => p.id === 'a')?.team,
+  'right',
+)
+assert.equal(reduce(lob, { type: 'kick', actorId: 'a', playerId: 'b' }).players.length, 1, 'кик в лобби')
+assert.equal(reduce(lob, { type: 'kick', actorId: 'zzz', playerId: 'b' }).players.length, 2, 'кик не-участником отклонён')
+const inGame = reduce(lob, { type: 'startGame', seed: { activeTeam: 'left', psychicId: 'a', card } })
+assert.equal(reduce(inGame, { type: 'kick', actorId: 'a', playerId: 'b' }).players.length, 2, 'кик вне лобби отклонён')
+assert.equal(
+  reduce(inGame, { type: 'setTeam', actorId: 'a', team: 'right' }).players.find((p) => p.id === 'a')?.team,
+  'left',
+  'смена команды вне лобби отклонена',
+)
 
 // --- skipRound и toLobby ---
 let k = run(initialState, [
@@ -95,12 +145,13 @@ let c = run(initialState, [
 ])
 assert.equal(c.cardsRemaining, 7)
 c = run(c, [
+  { type: 'commitTarget', actorId: 'a', commit: 'h' },
   { type: 'submitClue', actorId: 'a', clue: 'к' },
   { type: 'moveNeedle', actorId: 'a', pos: 50 },
   { type: 'lockNeedle', actorId: 'a' },
 ])
 assert.equal(c.phase, 'await_reveal', 'coop минует фазу слева/справа')
-c = reduce(c, { type: 'reveal', actorId: 'a', target: 50 })
+c = reduce(c, { type: 'reveal', actorId: 'a', target: 50, nonce: 'n' })
 assert.deepEqual(c.scores, { left: 3, right: 0 }, 'кооп: центр = 3 очка')
 assert.equal(c.cardsRemaining, 7, 'центр: -1 карта +1 бонус = 7')
 
@@ -108,10 +159,11 @@ let c2 = run(initialState, [
   { type: 'join', player: { id: 'a', name: 'А', team: 'left' } },
   { type: 'setMode', mode: 'coop' },
   { type: 'startGame', seed: { activeTeam: 'left', psychicId: 'a', card } },
+  { type: 'commitTarget', actorId: 'a', commit: 'h' },
   { type: 'submitClue', actorId: 'a', clue: 'к' },
   { type: 'moveNeedle', actorId: 'a', pos: 90 },
   { type: 'lockNeedle', actorId: 'a' },
-  { type: 'reveal', actorId: 'a', target: 50 },
+  { type: 'reveal', actorId: 'a', target: 50, nonce: 'n' },
 ])
 assert.equal(c2.cardsRemaining, 6, 'промах: -1 карта')
 

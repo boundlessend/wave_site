@@ -2,7 +2,12 @@
 import type { Card, Player, TeamId } from './types.ts'
 import { CARDS } from '../cards.ts'
 
-export const pickCard = (): Card => CARDS[Math.floor(Math.random() * CARDS.length)]
+// карта раунда: по возможности не та же, что в прошлый раз
+export const pickCard = (avoid: Card | null): Card => {
+  const fresh = avoid === null ? CARDS : CARDS.filter((c) => c[0] !== avoid[0] || c[1] !== avoid[1])
+  const pool = fresh.length > 0 ? fresh : CARDS
+  return pool[Math.floor(Math.random() * pool.length)]
+}
 
 export const teamPlayers = (
   players: readonly Player[],
