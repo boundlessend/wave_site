@@ -9,6 +9,17 @@ import { pickCard, pickPsychic } from './game/orchestrate.ts'
 // секрет телепата: мишень + nonce для commit-reveal, живёт только на его устройстве
 export type TargetSecret = { readonly target: number; readonly nonce: string }
 
+// сохранённый игрок вкладки: достаточно для восстановления после reload и обрывов
+const readStored = (key: string): Player | null => {
+  try {
+    const v = JSON.parse(sessionStorage.getItem(key) ?? '') as Player
+    if (typeof v?.id !== 'string' || typeof v?.name !== 'string') return null
+    return { id: v.id, name: v.name, team: v.team === 'right' ? 'right' : 'left' }
+  } catch {
+    return null
+  }
+}
+
 // зерно нового раунда с валидной (непустой) командой и телепатом
 const buildSeed = (s: GameState, preferred: TeamId): RoundSeed | null => {
   const avoidCard = s.round?.card ?? null
@@ -39,16 +50,34 @@ export const useRoom = (transport: Transport, persistKey: string | null) => {
   useEffect(() => transport.subscribe(setState), [transport])
   useEffect(() => transport.subscribeStatus(setConn), [transport])
 
-  // восстановление после перезагрузки: если наш игрок ещё в партии
-  // (хост удаляет ушедших с отсрочкой) — возвращаем себе его место
+  // восстановление игрока вкладки:
+  // 1) после перезагрузки — игрок ещё в партии (хост удаляет с отсрочкой), забираем место;
+  // 2) после выпадения (флап presence/сокета, фоновая вкладка) — хост успел удалить,
+  //    входим заново. кик отличается детерминированно: кикнутый видит себя в state.kicked
+  const lastRejoin = useRef<number>(0)
   useEffect(() => {
-    if (meId !== null || persistKey === null) return
-    const stored = sessionStorage.getItem(persistKey)
-    if (stored !== null && state.players.some((p) => p.id === stored)) {
-      setMeId(stored)
-      transport.setIdentity(stored)
+    if (persistKey === null) return
+    const stored = readStored(persistKey)
+    if (stored === null) return
+    if (state.players.some((p) => p.id === stored.id)) {
+      if (meId === null) {
+        setMeId(stored.id)
+        transport.setIdentity(stored.id)
+      }
+      return
     }
-  }, [state.players, meId, persistKey, transport])
+    if (state.kicked.includes(stored.id)) {
+      sessionStorage.removeItem(persistKey) // кик: место не возвращаем
+      return
+    }
+    const now = Date.now()
+    if (meId !== null && conn === 'online' && now - lastRejoin.current > 5000) {
+      lastRejoin.current = now
+      console.warn('wave: выпал из партии, вхожу заново', { playerId: stored.id })
+      transport.dispatch({ type: 'join', player: stored })
+      transport.setIdentity(stored.id)
+    }
+  }, [state.players, state.kicked, meId, conn, persistKey, transport])
 
   const me: Player | null = state.players.find((p) => p.id === meId) ?? null
   const d = transport.dispatch
@@ -108,10 +137,11 @@ export const useRoom = (transport: Transport, persistKey: string | null) => {
   const actions = {
     join: (name: string, team: TeamId): string => {
       const id = crypto.randomUUID()
-      d({ type: 'join', player: { id, name, team } })
+      const player: Player = { id, name, team }
+      d({ type: 'join', player })
       setMeId(id)
       transport.setIdentity(id) // привязать устройство к игроку
-      if (persistKey !== null) sessionStorage.setItem(persistKey, id)
+      if (persistKey !== null) sessionStorage.setItem(persistKey, JSON.stringify(player))
       return id
     },
     // выйти из комнаты: убрать себя из партии и забыть сохранённое место.

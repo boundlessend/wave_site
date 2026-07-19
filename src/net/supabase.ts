@@ -28,7 +28,15 @@ const NEEDLE_MS = 50
 const SKEW_MS = 60_000
 const PRESENCE_TTL_MS = 5 * 60_000 // рекорд старше — считается replay
 const PRESENCE_RETRACK_MS = 2 * 60_000 // периодическое обновление ts в presence
-const LEAVE_GRACE_MS = 10_000 // отсрочка удаления игрока: перезагрузка успевает вернуться
+// presence в фоновых вкладках ненадёжен (браузер троттлит heartbeat, рекорд флапает),
+// поэтому живость определяется двумя сигналами: presence ИЛИ ping по broadcast.
+// игрок удаляется, только когда пропали оба (и после отсрочки на перепроверку)
+const LEAVE_GRACE_MS = 15_000 // шаг перепроверки отсутствующего presence
+const PING_MS = 25_000 // клиентский ping (фоновый троттлинг растянет до ~минуты)
+const LIVENESS_MS = 90_000 // нет ни presence, ни ping дольше этого — игрок ушёл
+// потерянный broadcast не ретранслируется сам: хост периодически рассылает state,
+// а вернувшаяся из фона вкладка сразу просит его через hello
+const STATE_REFRESH_MS = 45_000
 
 const enc = new TextEncoder()
 const dec = new TextDecoder()
@@ -228,15 +236,26 @@ export const createSupabaseTransport = (opts: { code: string; secret: string }):
 
   // отключение устройства: игрок удаляется с отсрочкой — перезагрузившаяся
   // вкладка успевает вернуться и сохранить место (восстановление в useRoom)
+  const lastSeen = new Map<string, number>() // последнее верифицированное сообщение устройства игрока
   const pendingLeaves = new Map<string, ReturnType<typeof setTimeout>>()
   const scheduleLeave = (playerId: string): void => {
+    // флап собственного presence (реконнект/фоновая вкладка) - не повод удалять себя
+    if (playerId === myPlayerId) return
     if (pendingLeaves.has(playerId)) return
+    if (!lastSeen.has(playerId)) lastSeen.set(playerId, Date.now())
     pendingLeaves.set(
       playerId,
       setTimeout(() => {
         pendingLeaves.delete(playerId)
         void presentPlayerIds().then((ids) => {
-          if (amHost && !ids.has(playerId)) applyAsHost({ type: 'leave', playerId })
+          if (!amHost || ids.has(playerId)) return
+          if (Date.now() - (lastSeen.get(playerId) ?? 0) > LIVENESS_MS) {
+            console.warn('wave: удаляю игрока (нет ни presence, ни ping)', { playerId })
+            lastSeen.delete(playerId)
+            applyAsHost({ type: 'leave', playerId })
+          } else {
+            scheduleLeave(playerId) // presence нет, но устройство живо — перепроверим
+          }
         })
       }, LEAVE_GRACE_MS),
     )
@@ -259,6 +278,7 @@ export const createSupabaseTransport = (opts: { code: string; secret: string }):
     const becameHost = valid[0]?.clientId === clientId && !amHost
     amHost = valid[0]?.clientId === clientId
     if (becameHost) {
+      console.warn('wave: стал хостом', { clientId, presences: valid.length })
       // новый хост: игроков без presence удаляем с той же отсрочкой, не сразу
       const ids = new Set<string>()
       for (const r of valid) if (r.playerId) ids.add(r.playerId)
@@ -293,7 +313,9 @@ export const createSupabaseTransport = (opts: { code: string; secret: string }):
       if (roleActions.has(action.type) && 'actorId' in action) {
         const boundPid = await playerIdForClient(env.cid)
         if (boundPid !== null && action.actorId !== boundPid) return
+        if (boundPid !== null) lastSeen.set(boundPid, Date.now())
       }
+      if (action.type === 'join') lastSeen.set(action.player.id, Date.now())
       // commit-reveal: раскрытая мишень обязана совпасть с зафиксированным хешем
       if (action.type === 'reveal') {
         const commit = state.round?.commit
@@ -317,18 +339,44 @@ export const createSupabaseTransport = (opts: { code: string; secret: string }):
     if (!amHost || !rateOk()) return
     void openEnvelope('hello', payload as Sealed).then((env) => env && scheduleHelloState())
   })
+  // ping: живость устройства игрока независимо от presence
+  channel.on('broadcast', { event: 'ping' }, ({ payload }) => {
+    if (!amHost || !rateOk()) return
+    void openEnvelope('ping', payload as Sealed).then((env) => {
+      if (!env) return
+      const pid = (env.d as { playerId?: unknown } | null)?.playerId
+      if (typeof pid === 'string') lastSeen.set(pid, Date.now())
+    })
+  })
 
   let retrackTimer: ReturnType<typeof setInterval> | null = null
+  let pingTimer: ReturnType<typeof setInterval> | null = null
+  let refreshTimer: ReturnType<typeof setInterval> | null = null
   channel.subscribe((status) => {
+    if (status !== 'SUBSCRIBED') console.warn('wave: статус канала', { status })
     if (status === 'SUBSCRIBED') {
       setConn('online')
       void track()
       emit('hello', {})
       retrackTimer ??= setInterval(() => void track(), PRESENCE_RETRACK_MS)
+      pingTimer ??= setInterval(() => {
+        if (myPlayerId !== null) emit('ping', { playerId: myPlayerId })
+      }, PING_MS)
+      refreshTimer ??= setInterval(() => {
+        if (amHost) sendState()
+      }, STATE_REFRESH_MS)
     } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
       setConn('error')
     }
   })
+
+  // возврат вкладки из фона: presence и state могли устареть — обновляем сразу
+  const onVisible = (): void => {
+    if (document.hidden) return
+    void track()
+    if (!amHost) emit('hello', {})
+  }
+  document.addEventListener('visibilitychange', onVisible)
 
   // троттл сетевых обновлений стрелки с досылкой финальной позиции
   let lastSent = 0
@@ -381,6 +429,9 @@ export const createSupabaseTransport = (opts: { code: string; secret: string }):
       if (timer) clearTimeout(timer)
       if (helloTimer) clearTimeout(helloTimer)
       if (retrackTimer) clearInterval(retrackTimer)
+      if (pingTimer) clearInterval(pingTimer)
+      if (refreshTimer) clearInterval(refreshTimer)
+      document.removeEventListener('visibilitychange', onVisible)
       for (const t of pendingLeaves.values()) clearTimeout(t)
       pendingLeaves.clear()
       subs.clear()

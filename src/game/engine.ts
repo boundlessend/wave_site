@@ -60,6 +60,7 @@ export const initialState: GameState = {
   mode: 'versus',
   phase: 'lobby',
   players: [],
+  kicked: [],
   scores: { left: 0, right: 0 },
   round: null,
   roundNo: 0,
@@ -133,12 +134,14 @@ export const reduce = (state: GameState, action: Action): GameState => {
         ),
       }
     case 'kick':
-      // выгнать из лобби может любой участник комнаты (модель доверия); себя — это «выйти»
+      // выгнать из лобби может любой участник комнаты (модель доверия); себя — это «выйти».
+      // kicked-метка отличает кик от выпадения по обрыву: кикнутый не пере-зайдёт сам
       if (state.phase !== 'lobby') return state
       if (!state.players.some((p) => p.id === action.actorId)) return state
       return {
         ...state,
         players: state.players.filter((p) => p.id !== action.playerId),
+        kicked: [...state.kicked.slice(-19), action.playerId],
       }
     case 'setMode':
       if (state.phase !== 'lobby') return state

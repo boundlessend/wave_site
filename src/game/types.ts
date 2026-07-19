@@ -48,6 +48,9 @@ export type GameState = {
   readonly mode: GameMode
   readonly phase: Phase
   readonly players: readonly Player[]
+  // последние кикнутые id: кикнутый клиент видит себя здесь и не пере-заходит
+  // автоматически (в отличие от выпавшего из-за обрыва связи)
+  readonly kicked: readonly string[]
   readonly scores: Scores
   readonly round: Round | null
   readonly roundNo: number // номер раунда; телепат генерирует мишень раз на раунд

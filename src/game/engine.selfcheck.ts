@@ -105,7 +105,10 @@ assert.equal(
   reduce(lob, { type: 'setTeam', actorId: 'a', team: 'right' }).players.find((p) => p.id === 'a')?.team,
   'right',
 )
-assert.equal(reduce(lob, { type: 'kick', actorId: 'a', playerId: 'b' }).players.length, 1, 'кик в лобби')
+const kicked = reduce(lob, { type: 'kick', actorId: 'a', playerId: 'b' })
+assert.equal(kicked.players.length, 1, 'кик в лобби')
+assert.deepEqual(kicked.kicked, ['b'], 'кик помечен в state (клиент не пере-зайдёт)')
+assert.deepEqual(reduce(lob, { type: 'leave', playerId: 'b' }).kicked, [], 'leave не помечает кик')
 assert.equal(reduce(lob, { type: 'kick', actorId: 'zzz', playerId: 'b' }).players.length, 2, 'кик не-участником отклонён')
 const inGame = reduce(lob, { type: 'startGame', seed: { activeTeam: 'left', psychicId: 'a', card } })
 assert.equal(reduce(inGame, { type: 'kick', actorId: 'a', playerId: 'b' }).players.length, 2, 'кик вне лобби отклонён')
