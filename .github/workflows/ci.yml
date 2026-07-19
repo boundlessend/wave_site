@@ -27,3 +27,7 @@ jobs:
         run: npm run lint
       - name: Сборка
         run: npm run build
+      - name: Playwright-смоук
+        run: |
+          npx playwright install --with-deps chromium
+          npm run test:e2e
