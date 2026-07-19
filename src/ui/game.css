@@ -239,6 +239,27 @@
   letter-spacing: 0.04em;
 }
 
+.player-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.kick {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 6px;
+  border-radius: 2px;
+}
+
+.kick:hover {
+  color: var(--accent);
+}
+
 .devbar {
   font-size: 13px;
   color: var(--muted);

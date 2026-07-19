@@ -27,11 +27,44 @@ const RULES = [
 const nameOf = (state: GameState, id: string): string =>
   state.players.find((p) => p.id === id)?.name ?? '???'
 
+// строка игрока в лобби: имя + кнопка «выгнать» для остальных участников
+const PlayerRow = ({ room, player }: { room: Room; player: { id: string; name: string } }) => {
+  const { me, actions } = room
+  return (
+    <div className="player-row">
+      <span>
+        {player.name}
+        {me?.id === player.id ? ' (ты)' : ''}
+      </span>
+      {me !== null && me.id !== player.id && (
+        <button
+          className="kick"
+          aria-label={`Выгнать ${player.name}`}
+          title="Выгнать"
+          onClick={() => actions.kick(player.id)}
+        >
+          ✕
+        </button>
+      )}
+    </div>
+  )
+}
+
 const teamCount = (state: GameState, team: TeamId): number =>
   state.players.filter((p) => p.team === team).length
 
 // ——— лобби ———
-const Lobby = ({ room, dev, roomCode }: { room: Room; dev: boolean; roomCode: string | null }) => {
+const Lobby = ({
+  room,
+  dev,
+  roomCode,
+  onExit,
+}: {
+  room: Room
+  dev: boolean
+  roomCode: string | null
+  onExit: (() => void) | null
+}) => {
   const { state, me, actions } = room
   const [name, setName] = useState('')
   const [copied, setCopied] = useState(false)
@@ -51,7 +84,10 @@ const Lobby = ({ room, dev, roomCode }: { room: Room; dev: boolean; roomCode: st
     )
   }
   const tryJoin = (): void => {
-    if (name.trim().length > 0) actions.join(name.trim(), 'left')
+    if (name.trim().length === 0) return
+    // автобаланс: новичок попадает в меньшую команду (при равенстве — в левую)
+    const team: TeamId = teamCount(state, 'left') <= teamCount(state, 'right') ? 'left' : 'right'
+    actions.join(name.trim(), team)
   }
 
   return (
@@ -115,7 +151,7 @@ const Lobby = ({ room, dev, roomCode }: { room: Room; dev: boolean; roomCode: st
         <div className="panel" style={{ background: 'var(--panel-2)' }}>
           <h3 style={{ margin: '0 0 8px' }}>Игроки</h3>
           {state.players.map((p) => (
-            <div key={p.id}>{p.name}</div>
+            <PlayerRow key={p.id} room={room} player={p} />
           ))}
         </div>
       ) : (
@@ -128,16 +164,13 @@ const Lobby = ({ room, dev, roomCode }: { room: Room; dev: boolean; roomCode: st
               {state.players
                 .filter((p) => p.team === team)
                 .map((p) => (
-                  <div key={p.id}>
-                    {p.name}
-                    {me?.id === p.id ? ' (ты)' : ''}
-                  </div>
+                  <PlayerRow key={p.id} room={room} player={p} />
                 ))}
               {me !== null && me.team !== team && (
                 <button
                   className="chip"
                   style={{ marginTop: 8 }}
-                  onClick={() => actions.setTeam(me.id, team)}
+                  onClick={() => actions.setTeam(team)}
                 >
                   Перейти сюда
                 </button>
@@ -158,6 +191,18 @@ const Lobby = ({ room, dev, roomCode }: { room: Room; dev: boolean; roomCode: st
         <p className="muted" style={{ marginTop: 8 }}>
           {coop ? 'Нужен хотя бы один игрок' : 'Нужно по игроку в каждой команде'}
         </p>
+      )}
+      {onExit !== null && (
+        <button
+          className="chip"
+          style={{ marginTop: 12 }}
+          onClick={() => {
+            actions.leaveRoom()
+            onExit()
+          }}
+        >
+          Выйти из комнаты
+        </button>
       )}
 
       {import.meta.env.DEV && dev && (
@@ -419,23 +464,26 @@ const Table = ({ room, muted }: { room: Room; muted: boolean }) => {
 
   // мишень видна телепату в его фазу и всем при раскрытии
   const shownTarget =
-    revealed ? round.target : phase === 'psychic' && isPsychic ? secret : null
+    revealed ? round.target : phase === 'psychic' && isPsychic ? (secret?.target ?? null) : null
 
   return (
     <div>
-      <AnimatePresence>
-        {myTurn && (
-          <motion.div
-            className="turn-banner"
-            initial={{ opacity: 0, scale: 0.92, y: -8 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.92, y: -8 }}
-            transition={{ type: 'spring', stiffness: 320, damping: 22 }}
-          >
-            Твой ход
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* aria-live на постоянном контейнере: скринридер объявляет появление хода */}
+      <div aria-live="polite">
+        <AnimatePresence>
+          {myTurn && (
+            <motion.div
+              className="turn-banner"
+              initial={{ opacity: 0, scale: 0.92, y: -8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.92, y: -8 }}
+              transition={{ type: 'spring', stiffness: 320, damping: 22 }}
+            >
+              Твой ход
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
       <Scores state={state} />
       <div className="dial-wrap">
         <Dial
@@ -543,10 +591,12 @@ export const Game = ({
   room,
   devPerspective,
   roomCode = null,
+  onExit = null,
 }: {
   room: Room
   devPerspective: boolean
   roomCode?: string | null
+  onExit?: (() => void) | null
 }) => {
   const { state, conn } = room
   const [muted, setMuted] = useState(() => localStorage.getItem('wave_muted') === '1')
@@ -562,8 +612,19 @@ export const Game = ({
   return (
     <div>
       {conn !== 'online' && (
-        <div className={`conn ${conn}`}>
-          {conn === 'connecting' ? 'Подключение…' : 'Связь потеряна - переподключаемся…'}
+        <div className={`conn ${conn}`} role="status">
+          {conn === 'connecting' ? (
+            'Подключение…'
+          ) : conn === 'outdated' ? (
+            <>
+              Вышла новая версия игры{' '}
+              <button className="chip" onClick={() => window.location.reload()}>
+                Обновить страницу
+              </button>
+            </>
+          ) : (
+            'Связь потеряна - переподключаемся…'
+          )}
         </div>
       )}
       <AnimatePresence mode="wait">
@@ -575,7 +636,7 @@ export const Game = ({
           transition={{ duration: 0.28, ease: 'easeOut' }}
         >
           {screen === 'lobby' && (
-            <Lobby room={room} dev={devPerspective} roomCode={roomCode} />
+            <Lobby room={room} dev={devPerspective} roomCode={roomCode} onExit={onExit} />
           )}
           {screen === 'over' && <GameOver room={room} />}
           {screen === 'table' && <Table room={room} muted={muted} />}

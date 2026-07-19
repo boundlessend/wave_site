@@ -47,18 +47,26 @@ const setUrl = (r: RoomRef): void =>
 // локальный режим: одна вкладка, для разработки без Supabase
 function LocalRoom() {
   const [transport] = useState(createLocalTransport)
-  const room = useRoom(transport)
+  const room = useRoom(transport, null)
   return <Game room={room} devPerspective={true} />
 }
 
 // комната, подключённая к готовому транспорту (useRoom вызывается безусловно)
-function ConnectedRoom({ transport, code }: { transport: Transport; code: string }) {
-  const room = useRoom(transport)
-  return <Game room={room} devPerspective={false} roomCode={code} />
+function ConnectedRoom({
+  transport,
+  code,
+  onExit,
+}: {
+  transport: Transport
+  code: string
+  onExit: () => void
+}) {
+  const room = useRoom(transport, `wave_me_${code}`)
+  return <Game room={room} devPerspective={false} roomCode={code} onExit={onExit} />
 }
 
 // онлайн-комната: транспорт создаём в эффекте (устойчиво к StrictMode)
-function OnlineRoom({ room }: { room: RoomRef }) {
+function OnlineRoom({ room, onExit }: { room: RoomRef; onExit: () => void }) {
   const [transport, setTransport] = useState<Transport | null>(null)
   useEffect(() => {
     const t = createSupabaseTransport({ code: room.code, secret: room.secret })
@@ -66,7 +74,7 @@ function OnlineRoom({ room }: { room: RoomRef }) {
     return () => t.dispose()
   }, [room.code, room.secret])
   if (!transport) return <div className="panel">Подключение…</div>
-  return <ConnectedRoom transport={transport} code={room.code} />
+  return <ConnectedRoom transport={transport} code={room.code} onExit={onExit} />
 }
 
 // экран входа: создать комнату или войти по ссылке-приглашению
@@ -112,8 +120,12 @@ function RoomEntry({ onEnter }: { onEnter: (r: RoomRef) => void }) {
 
 function Online() {
   const [room, setRoom] = useState<RoomRef | null>(() => parseInvite(window.location.href))
+  const exit = (): void => {
+    window.history.replaceState(null, '', window.location.pathname)
+    setRoom(null)
+  }
   if (room === null) return <RoomEntry onEnter={setRoom} />
-  return <OnlineRoom room={room} />
+  return <OnlineRoom room={room} onExit={exit} />
 }
 
 export default function App() {
