@@ -4,7 +4,8 @@ import type { Action } from '../game/engine.ts'
 import { reduce, initialState } from '../game/engine.ts'
 import type { GameState } from '../game/types.ts'
 
-export type ConnStatus = 'connecting' | 'online' | 'error'
+// outdated: у собеседников более новая версия протокола — нужна перезагрузка страницы
+export type ConnStatus = 'connecting' | 'online' | 'error' | 'outdated'
 
 export type Transport = {
   dispatch: (action: Action) => void
