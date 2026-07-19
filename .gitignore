@@ -30,7 +30,10 @@ dist-ssr
 
 # артефакты браузерных проверок
 .playwright-mcp/
+test-results/
+playwright-report/
 *.png
+!public/og.png
 .vercel
 .env*
 !.env.example

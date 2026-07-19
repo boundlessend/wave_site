@@ -133,9 +133,11 @@ export const Dial = ({ needlePos, target, interactive, onChange }: DialProps) =>
       }}
       role="slider"
       aria-label="Положение стрелки на шкале"
+      aria-orientation="horizontal"
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={Math.round(needlePos)}
+      aria-valuetext={`${Math.round(needlePos)} из 100`}
       tabIndex={interactive ? 0 : -1}
       onPointerDown={handleDown}
       onPointerMove={handleMove}
