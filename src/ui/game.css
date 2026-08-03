@@ -62,7 +62,7 @@
 }
 
 .btn:hover:not(:disabled) {
-  background: #2c2820;
+  background: var(--btn-hover);
 }
 
 .btn:active:not(:disabled) {
@@ -80,7 +80,7 @@
 }
 
 .btn.ghost:hover:not(:disabled) {
-  background: rgba(22, 20, 15, 0.06);
+  background: var(--hover);
 }
 
 .btn.wide {
@@ -98,13 +98,13 @@
   padding: 13px;
   border: 2px solid var(--border);
   border-radius: 2px;
-  background: #fffdf8;
+  background: var(--field);
   color: var(--text);
   transition: border-color 0.15s ease;
 }
 
 .field::placeholder {
-  color: #6f6a60;
+  color: var(--muted);
 }
 
 .field:focus {
@@ -156,16 +156,29 @@
 }
 
 .score.active .muted {
-  color: #c9c3b6;
+  color: var(--paper);
+  opacity: 0.75;
 }
 
-/* на тёмном активном табло командные цвета осветляем ради контраста (>=4.5:1) */
+/* на инвертированном активном табло командные цвета осветляем ради контраста (>=4.5:1) */
 .score.active.left b {
   color: #ff8a6b;
 }
 
 .score.active.right b {
   color: #86aeec;
+}
+
+:root[data-theme='dark'] .score.active.left b,
+:root[data-theme='dark'] .score.active.right b {
+  color: var(--paper);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .score.active.left b,
+  :root:not([data-theme='light']) .score.active.right b {
+    color: var(--paper);
+  }
 }
 
 .muted {
@@ -208,7 +221,7 @@
 }
 
 .chip:hover {
-  background: rgba(22, 20, 15, 0.06);
+  background: var(--hover);
 }
 
 .chip.on {
@@ -317,8 +330,106 @@
 }
 
 .conn.error {
-  color: #b02d1a; /* темнее --accent: контраст текста >=4.5:1 на бумаге */
+  color: var(--accent-text);
   border-color: var(--accent);
+}
+
+/* «вышла новая версия» — не рядовое состояние связи, выделяем инверсией */
+.conn.outdated {
+  background: var(--text);
+  color: var(--bg);
+  border-color: var(--text);
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.conn.outdated .chip {
+  color: var(--bg);
+  border-color: var(--bg);
+}
+
+.conn.outdated .chip:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+/* взведённое подтверждение: опасное действие рядом с отменой */
+.confirm {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.ghost-mini {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* таблица итогов раундов */
+.history-scroll {
+  overflow-x: auto;
+}
+
+.history {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.history th,
+.history td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+/* карточка и подсказка бывают длинными: переносим их, а не растим таблицу вширь */
+.history td.wrap {
+  white-space: normal;
+  min-width: 120px;
+}
+
+.history th {
+  font-family: var(--mono);
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.history td.miss {
+  color: var(--accent-text);
+}
+
+/* редактор своих карточек */
+.deck-text {
+  font-family: var(--mono);
+  font-size: 13px;
+  resize: vertical;
+  margin-top: 8px;
+}
+
+.deck-editor {
+  margin: 12px 0;
+}
+
+/* QR-код комнаты */
+.qr-wrap {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.qr-box {
+  border: 2px solid var(--border);
+  border-radius: 2px;
+  background: #fffdf8;
+  flex: none;
 }
 
 .footer {
@@ -329,6 +440,14 @@
 .footer .chip {
   font-size: 13px;
   color: var(--muted);
+}
+
+/* тач-таргет: 44px не только на телефоне, планшеты трогают пальцем ровно так же */
+@media (pointer: coarse) {
+  .chip,
+  .kick {
+    padding: 12px 16px;
+  }
 }
 
 @media (max-width: 480px) {
@@ -348,6 +467,6 @@
     font-size: 28px;
   }
   .chip {
-    padding: 12px 16px; /* тач-таргет ~44px на мобильном */
+    padding: 12px 16px;
   }
 }

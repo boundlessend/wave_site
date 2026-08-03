@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import type { BgVariant } from './Scene3D.tsx'
+import type { Theme } from './theme.ts'
 
 export type BgChoice = BgVariant | 'off'
 
-const OPTIONS: { key: BgChoice; label: string }[] = [
+const BG_OPTIONS: { key: BgChoice; label: string }[] = [
   { key: 'ridge', label: 'Ридж-волны' },
   { key: 'dots', label: 'Полутон' },
   { key: 'shapes', label: 'Фигуры' },
@@ -12,8 +13,24 @@ const OPTIONS: { key: BgChoice; label: string }[] = [
   { key: 'off', label: 'Без фона' },
 ]
 
-// полузаметный переключатель фоновой 3D-сцены в углу экрана
-export const BgPicker = ({ value, onChange }: { value: BgChoice; onChange: (v: BgChoice) => void }) => {
+const THEME_OPTIONS: { key: Theme; label: string }[] = [
+  { key: 'auto', label: 'Как в системе' },
+  { key: 'light', label: 'Светлая' },
+  { key: 'dark', label: 'Тёмная' },
+]
+
+// полузаметный переключатель вида в углу экрана: тема и фоновая 3D-сцена
+export const BgPicker = ({
+  value,
+  onChange,
+  theme,
+  onThemeChange,
+}: {
+  value: BgChoice
+  onChange: (v: BgChoice) => void
+  theme: Theme
+  onThemeChange: (v: Theme) => void
+}) => {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -40,8 +57,7 @@ export const BgPicker = ({ value, onChange }: { value: BgChoice; onChange: (v: B
     }
   }, [open])
 
-  const choose = (k: BgChoice): void => {
-    onChange(k)
+  const close = (): void => {
     setOpen(false)
     triggerRef.current?.focus()
   }
@@ -49,16 +65,35 @@ export const BgPicker = ({ value, onChange }: { value: BgChoice; onChange: (v: B
   return (
     <div className="bgpick" ref={ref}>
       {open && (
-        <div className="bgpick-menu" id="bgpick-menu" role="menu" aria-label="Фон" ref={menuRef}>
+        <div className="bgpick-menu" id="bgpick-menu" role="menu" aria-label="Вид" ref={menuRef}>
+          <div className="bgpick-title">Тема</div>
+          {THEME_OPTIONS.map((o) => (
+            <button
+              key={o.key}
+              type="button"
+              role="menuitemradio"
+              aria-checked={theme === o.key}
+              className={`bgpick-item ${theme === o.key ? 'on' : ''}`}
+              onClick={() => {
+                onThemeChange(o.key)
+                close()
+              }}
+            >
+              {o.label}
+            </button>
+          ))}
           <div className="bgpick-title">Фон</div>
-          {OPTIONS.map((o) => (
+          {BG_OPTIONS.map((o) => (
             <button
               key={o.key}
               type="button"
               role="menuitemradio"
               aria-checked={value === o.key}
               className={`bgpick-item ${value === o.key ? 'on' : ''}`}
-              onClick={() => choose(o.key)}
+              onClick={() => {
+                onChange(o.key)
+                close()
+              }}
             >
               {o.label}
             </button>
@@ -69,7 +104,7 @@ export const BgPicker = ({ value, onChange }: { value: BgChoice; onChange: (v: B
         ref={triggerRef}
         className="bgpick-btn"
         type="button"
-        aria-label="Выбрать фон"
+        aria-label="Тема и фон"
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls="bgpick-menu"

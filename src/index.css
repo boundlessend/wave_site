@@ -20,12 +20,21 @@
   --bg: #ece8df;
   --paper: #f5f1e8;
   --panel-2: #efeadd;
+  --field: #fffdf8;
   --border: #16140f;
   --text: #16140f;
   --muted: #6f6a60;
   --accent: #c8341f;
+  --accent-text: #b02d1a; /* тёмнее акцента: контраст текста >=4.5:1 на бумаге */
   --left: #c8341f;
   --right: #2b4a8f;
+  --hover: rgba(22, 20, 15, 0.06);
+  --btn-hover: #2c2820;
+  /* шкала: лицо циферблата, стрелка и полосы зон */
+  --dial-face: #efe8d9;
+  --needle: #16140f;
+  --zone-near: rgba(22, 20, 15, 0.26);
+  --zone-far: rgba(22, 20, 15, 0.1);
   --display: 'Unbounded', system-ui, sans-serif;
   --serif: Georgia, 'Times New Roman', serif;
   --mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', monospace;
@@ -38,6 +47,52 @@
     'Segoe UI',
     Roboto,
     sans-serif;
+}
+
+/* тёмная тема. auto = следуем системе, но выбор вручную (data-theme) сильнее:
+   поэтому системное правило не трогает явно выставленную светлую */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #14130f;
+    --paper: #1c1a15;
+    --panel-2: #232019;
+    --field: #262219;
+    --border: #d8d2c4;
+    --text: #ece8df;
+    --muted: #a49e91;
+    --accent: #e05a42;
+    --accent-text: #f08a76;
+    --left: #ef7457;
+    --right: #86aeec;
+    --hover: rgba(236, 232, 223, 0.09);
+    --btn-hover: #cfc9bb;
+    --dial-face: #221f19;
+    --needle: #ece8df;
+    --zone-near: rgba(236, 232, 223, 0.24);
+    --zone-far: rgba(236, 232, 223, 0.09);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme='dark'] {
+  --bg: #14130f;
+  --paper: #1c1a15;
+  --panel-2: #232019;
+  --field: #262219;
+  --border: #d8d2c4;
+  --text: #ece8df;
+  --muted: #a49e91;
+  --accent: #e05a42;
+  --accent-text: #f08a76;
+  --left: #ef7457;
+  --right: #86aeec;
+  --hover: rgba(236, 232, 223, 0.09);
+  --btn-hover: #cfc9bb;
+  --dial-face: #221f19;
+  --needle: #ece8df;
+  --zone-near: rgba(236, 232, 223, 0.24);
+  --zone-far: rgba(236, 232, 223, 0.09);
+  color-scheme: dark;
 }
 
 * {
@@ -130,7 +185,18 @@ input {
   flex-direction: column;
   gap: 2px;
   min-width: 150px;
+  max-height: 70vh;
+  overflow-y: auto;
   box-shadow: 0 8px 24px rgba(22, 20, 15, 0.12);
+}
+
+.bgpick-title + .bgpick-item {
+  margin-top: 0;
+}
+
+.bgpick-item + .bgpick-title {
+  margin-top: 6px;
+  border-top: 1px solid var(--border);
 }
 
 .bgpick-title {
@@ -153,7 +219,7 @@ input {
 }
 
 .bgpick-item:hover {
-  background: rgba(22, 20, 15, 0.06);
+  background: var(--hover);
 }
 
 .bgpick-item.on {
