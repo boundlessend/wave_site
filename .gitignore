@@ -13,9 +13,9 @@ dist-ssr
 *.local
 
 # секреты окружения (.env.example остаётся в репозитории)
-.env
-.env.*
+.env*
 !.env.example
+.vercel
 
 # Editor directories and files
 .vscode/*
@@ -28,12 +28,9 @@ dist-ssr
 *.sln
 *.sw?
 
-# артефакты браузерных проверок
+# артефакты браузерных проверок (скриншоты, трейсы, отчёты)
 .playwright-mcp/
 test-results/
 playwright-report/
 *.png
-!public/og.png
-.vercel
-.env*
-!.env.example
+!public/*.png
