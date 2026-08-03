@@ -19,10 +19,12 @@ export class ErrorBoundary extends Component<Props, State> {
 
   render(): ReactNode {
     if (this.state.error) {
+      // текст ошибки только в консоль: в нём бывают внутренние детали,
+      // игроку он всё равно ничего не объясняет
       return (
         <div className="panel" style={{ margin: 16 }}>
           <h1>Что-то сломалось</h1>
-          <p className="muted">{this.state.error.message}</p>
+          <p className="muted">Перезагрузи страницу — комната и место в партии сохранятся.</p>
           <button className="btn wide" onClick={() => window.location.reload()}>
             Перезагрузить
           </button>
