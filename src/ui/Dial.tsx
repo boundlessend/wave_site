@@ -1,6 +1,6 @@
-import { useEffect, useLayoutEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { motion, useMotionValue, useSpring, useTransform } from 'motion/react'
-import { ZONE } from '../game/rules.ts'
+import { clamp, ZONE } from '../game/rules.ts'
 
 // геометрия viewBox
 const W = 400
@@ -22,9 +22,6 @@ const wedge = (pLo: number, pHi: number, r: number): string => {
   return `M ${CX} ${CY} L ${a.x.toFixed(2)} ${a.y.toFixed(2)} A ${r} ${r} 0 0 1 ${b.x.toFixed(2)} ${b.y.toFixed(2)} Z`
 }
 
-const clamp = (n: number, lo: number, hi: number): number =>
-  Math.max(lo, Math.min(hi, n))
-
 type DialProps = {
   needlePos: number
   target: number | null
@@ -34,9 +31,7 @@ type DialProps = {
 
 export const Dial = ({ needlePos, target, interactive, onChange }: DialProps) => {
   const svgRef = useRef<SVGSVGElement>(null)
-  const bandsRef = useRef<SVGGElement>(null)
   const dragging = useRef(false)
-  const prevTarget = useRef<number | null>(target)
 
   const posMV = useMotionValue(needlePos)
   const spring = useSpring(posMV, { stiffness: 280, damping: 30 })
@@ -46,32 +41,26 @@ export const Dial = ({ needlePos, target, interactive, onChange }: DialProps) =>
   const nx = useTransform(spring, (p) => pointAt(p, R - 12).x)
   const ny = useTransform(spring, (p) => pointAt(p, R - 12).y)
 
-  // GSAP-хореография раскрытия зоны (ленивый импорт — gsap не в основном бандле)
-  useLayoutEffect(() => {
-    const appeared = prevTarget.current === null && target !== null
-    prevTarget.current = target
-    const g = bandsRef.current
-    if (!appeared || !g) return
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
-    g.style.opacity = '0' // прячем до загрузки gsap, чтобы не было вспышки
-    let cancelled = false
-    // подстраховка: если чанк не загрузится — всё равно показать зону
-    const safety = setTimeout(() => g && (g.style.opacity = '1'), 800)
-    void import('gsap').then(({ default: gsap }) => {
-      clearTimeout(safety)
-      if (cancelled || !bandsRef.current) return
-      bandsRef.current.style.opacity = '1'
-      gsap.fromTo(
-        bandsRef.current.children,
-        { scale: 0, opacity: 0, svgOrigin: `${CX} ${CY}` },
-        { scale: 1, opacity: 1, duration: 0.55, stagger: 0.05, ease: 'back.out(1.7)' },
-      )
+  // указатель шлёт события чаще, чем экран рисует кадры: коалесцируем до одного
+  // на кадр, иначе каждое движение мыши перерисовывает всё дерево комнаты
+  const queued = useRef<number | null>(null)
+  const raf = useRef(0)
+  const emitPos = (p: number): void => {
+    queued.current = p
+    if (raf.current !== 0) return
+    raf.current = requestAnimationFrame(() => {
+      raf.current = 0
+      const next = queued.current
+      queued.current = null
+      if (next !== null) onChange?.(next)
     })
-    return () => {
-      cancelled = true
-      clearTimeout(safety)
-    }
-  }, [target])
+  }
+  useEffect(
+    () => () => {
+      if (raf.current !== 0) cancelAnimationFrame(raf.current)
+    },
+    [],
+  )
 
   const posFromEvent = (clientX: number, clientY: number): number => {
     const svg = svgRef.current
@@ -80,19 +69,18 @@ export const Dial = ({ needlePos, target, interactive, onChange }: DialProps) =>
     const sx = ((clientX - rect.left) / rect.width) * W
     const sy = ((clientY - rect.top) / rect.height) * H
     const theta = Math.atan2(CY - sy, sx - CX)
-    const clamped = clamp(theta, 0, Math.PI)
-    return clamp((1 - clamped / Math.PI) * 100, 0, 100)
+    return clamp((1 - clamp(theta, 0, Math.PI) / Math.PI) * 100, 0, 100)
   }
 
   const handleDown = (e: React.PointerEvent<SVGSVGElement>): void => {
     if (!interactive || !onChange) return
     dragging.current = true
     e.currentTarget.setPointerCapture(e.pointerId)
-    onChange(posFromEvent(e.clientX, e.clientY))
+    emitPos(posFromEvent(e.clientX, e.clientY))
   }
   const handleMove = (e: React.PointerEvent<SVGSVGElement>): void => {
     if (!dragging.current || !onChange) return
-    onChange(posFromEvent(e.clientX, e.clientY))
+    emitPos(posFromEvent(e.clientX, e.clientY))
   }
   const handleUp = (): void => {
     dragging.current = false
@@ -113,11 +101,11 @@ export const Dial = ({ needlePos, target, interactive, onChange }: DialProps) =>
     target === null
       ? []
       : [
-          { lo: target - ZONE.two, hi: target - ZONE.three, color: 'rgba(22,20,15,0.10)' },
-          { lo: target - ZONE.three, hi: target - ZONE.four, color: 'rgba(22,20,15,0.26)' },
-          { lo: target - ZONE.four, hi: target + ZONE.four, color: '#c8341f' },
-          { lo: target + ZONE.four, hi: target + ZONE.three, color: 'rgba(22,20,15,0.26)' },
-          { lo: target + ZONE.three, hi: target + ZONE.two, color: 'rgba(22,20,15,0.10)' },
+          { lo: target - ZONE.two, hi: target - ZONE.three, color: 'var(--zone-far)' },
+          { lo: target - ZONE.three, hi: target - ZONE.four, color: 'var(--zone-near)' },
+          { lo: target - ZONE.four, hi: target + ZONE.four, color: 'var(--accent)' },
+          { lo: target + ZONE.four, hi: target + ZONE.three, color: 'var(--zone-near)' },
+          { lo: target + ZONE.three, hi: target + ZONE.two, color: 'var(--zone-far)' },
         ]
 
   return (
@@ -138,6 +126,7 @@ export const Dial = ({ needlePos, target, interactive, onChange }: DialProps) =>
       aria-valuemax={100}
       aria-valuenow={Math.round(needlePos)}
       aria-valuetext={`${Math.round(needlePos)} из 100`}
+      aria-disabled={!interactive}
       tabIndex={interactive ? 0 : -1}
       onPointerDown={handleDown}
       onPointerMove={handleMove}
@@ -147,13 +136,23 @@ export const Dial = ({ needlePos, target, interactive, onChange }: DialProps) =>
     >
       <path
         d={`M ${CX - R} ${CY} A ${R} ${R} 0 0 1 ${CX + R} ${CY} Z`}
-        fill="#efe8d9"
-        stroke="#16140f"
+        fill="var(--dial-face)"
+        stroke="var(--border)"
         strokeWidth={2}
       />
-      <g ref={bandsRef}>
+      {/* зоны раскрываются от центра циферблата; MotionConfig гасит анимацию
+          при prefers-reduced-motion, отдельная проверка не нужна */}
+      <g style={{ transformBox: 'view-box', transformOrigin: `${CX}px ${CY}px` }}>
         {bands.map((b, i) => (
-          <path key={i} d={wedge(b.lo, b.hi, R)} fill={b.color} />
+          <motion.path
+            key={`${b.lo}-${b.hi}`}
+            d={wedge(b.lo, b.hi, R)}
+            fill={b.color}
+            initial={{ scale: 0, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ type: 'spring', stiffness: 260, damping: 14, delay: i * 0.05 }}
+            style={{ transformBox: 'view-box', transformOrigin: `${CX}px ${CY}px` }}
+          />
         ))}
       </g>
       <motion.line
@@ -161,12 +160,12 @@ export const Dial = ({ needlePos, target, interactive, onChange }: DialProps) =>
         y1={CY}
         x2={nx}
         y2={ny}
-        stroke="#16140f"
+        stroke="var(--needle)"
         strokeWidth={5}
         strokeLinecap="round"
       />
-      <circle cx={CX} cy={CY} r={15} fill="#16140f" stroke="#ece8df" strokeWidth={3} />
-      <circle cx={CX} cy={CY} r={6} fill="#c8341f" />
+      <circle cx={CX} cy={CY} r={15} fill="var(--needle)" stroke="var(--paper)" strokeWidth={3} />
+      <circle cx={CX} cy={CY} r={6} fill="var(--accent)" />
     </svg>
   )
 }
