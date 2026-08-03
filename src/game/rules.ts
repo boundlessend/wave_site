@@ -15,9 +15,19 @@ export const TARGET_MIN = ZONE.two
 export const TARGET_MAX = 100 - ZONE.two
 export const WIN_SCORE = 10
 
+export const clamp = (n: number, lo: number, hi: number): number =>
+  Math.max(lo, Math.min(hi, n))
+
+// равномерное [0,1) из CSPRNG: мишень — единственный секрет раунда,
+// а Math.random в V8 восстанавливается по нескольким выходам
+const randomUnit = (): number => crypto.getRandomValues(new Uint32Array(1))[0] / 2 ** 32
+
+// случайный индекс 0..n-1 (выбор карты и телепата): один источник случайности на проект
+export const randomIndex = (n: number): number => Math.floor(randomUnit() * n)
+
 // случайный центр мишени так, чтобы вся зона помещалась на шкале
 export const randomTarget = (): number =>
-  TARGET_MIN + Math.random() * (TARGET_MAX - TARGET_MIN)
+  TARGET_MIN + randomUnit() * (TARGET_MAX - TARGET_MIN)
 
 // очки за попадание стрелки относительно центра мишени
 export const bandPoints = (target: number, needle: number): 0 | 2 | 3 | 4 => {
@@ -34,7 +44,9 @@ export const coopPoints = (target: number, needle: number): 0 | 2 | 3 => {
   return p === 4 ? 3 : p
 }
 
-// с какой стороны от стрелки находится центр мишени
+// с какой стороны от стрелки находится центр мишени.
+// точное совпадение (target === needle) считаем RIGHT: это попадание в центр,
+// за которое вторая команда очка не получает в любом случае
 export const sideOfTarget = (target: number, needle: number): Side =>
   target < needle ? 'LEFT' : 'RIGHT'
 
@@ -82,10 +94,11 @@ export const keepsTurn = (params: {
   return params.scoresAfter[params.activeTeam] < params.scoresAfter[other]
 }
 
-// победитель после раунда: игра кончается когда кто-то набрал WIN_SCORE+,
-// побеждает команда с большим счётом; равные счёты на вершине → ничья (gameover)
-export const checkWinner = (scores: Scores): TeamId | 'tie' | null => {
+// победитель после раунда: игра кончается, когда кто-то набрал WIN_SCORE+
+// И оторвался от соперника. равенство на вершине (10:10) не заканчивает партию —
+// как в настольных правилах, играем до перевеса
+export const checkWinner = (scores: Scores): TeamId | null => {
   if (scores.left < WIN_SCORE && scores.right < WIN_SCORE) return null
-  if (scores.left === scores.right) return 'tie'
+  if (scores.left === scores.right) return null
   return scores.left > scores.right ? 'left' : 'right'
 }

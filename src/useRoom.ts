@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Transport, ConnStatus } from './net/transport.ts'
 import { nextActiveTeam, teamWithPlayers, type RoundSeed } from './game/engine.ts'
-import type { GameMode, GameState, Player, Side, TeamId } from './game/types.ts'
+import type { Card, GameMode, GameState, Player, Side, TeamId } from './game/types.ts'
 import { randomTarget } from './game/rules.ts'
 import { genNonce, targetCommit } from './game/commit.ts'
 import { pickCard, pickPsychic } from './game/orchestrate.ts'
+import { loadDeck } from './cards.ts'
 
 // секрет телепата: мишень + nonce для commit-reveal, живёт только на его устройстве
 export type TargetSecret = { readonly target: number; readonly nonce: string }
@@ -20,21 +21,28 @@ const readStored = (key: string): Player | null => {
   }
 }
 
+// сыгранные карты партии плюс текущая: их пропускаем при выборе новой
+const playedCards = (s: GameState): readonly Card[] => {
+  const played = s.history.map((h) => h.card)
+  return s.round === null ? played : [...played, s.round.card]
+}
+
 // зерно нового раунда с валидной (непустой) командой и телепатом
 const buildSeed = (s: GameState, preferred: TeamId): RoundSeed | null => {
-  const avoidCard = s.round?.card ?? null
+  const deck = loadDeck()
+  const played = playedCards(s)
   if (s.mode === 'coop') {
     // startGame переносит всех в 'left'; телепат из всех игроков, ход всегда за 'left'
     const asLeft = s.players.map((p) => ({ ...p, team: 'left' as TeamId }))
     const psychicId = pickPsychic(asLeft, 'left', s.round?.psychicId ?? '')
     if (psychicId === '') return null
-    return { activeTeam: 'left', psychicId, card: pickCard(avoidCard) }
+    return { activeTeam: 'left', psychicId, card: pickCard(deck, played) }
   }
   const team = teamWithPlayers(s, preferred)
   if (team === null) return null
   const psychicId = pickPsychic(s.players, team, s.round?.psychicId ?? '')
   if (psychicId === '') return null
-  return { activeTeam: team, psychicId, card: pickCard(avoidCard) }
+  return { activeTeam: team, psychicId, card: pickCard(deck, played) }
 }
 
 // хук комнаты: состояние из транспорта + локальный секрет мишени телепата.
@@ -52,9 +60,11 @@ export const useRoom = (transport: Transport, persistKey: string | null) => {
 
   // восстановление игрока вкладки:
   // 1) после перезагрузки — игрок ещё в партии (хост удаляет с отсрочкой), забираем место;
-  // 2) после выпадения (флап presence/сокета, фоновая вкладка) — хост успел удалить,
-  //    входим заново. кик отличается детерминированно: кикнутый видит себя в state.kicked
-  const lastRejoin = useRef<number>(0)
+  // 2) после выпадения (флап presence/сокета, фоновая вкладка, хост успел удалить) —
+  //    входим заново, даже если meId потерян перезагрузкой.
+  // кик отличается детерминированно: кикнутый видит себя в state.kicked.
+  // отсчёт с монтирования: первые секунды ждём state от хоста, чтобы не слать лишний join
+  const lastRejoin = useRef<number>(Date.now())
   useEffect(() => {
     if (persistKey === null) return
     const stored = readStored(persistKey)
@@ -71,11 +81,12 @@ export const useRoom = (transport: Transport, persistKey: string | null) => {
       return
     }
     const now = Date.now()
-    if (meId !== null && conn === 'online' && now - lastRejoin.current > 5000) {
+    if (conn === 'online' && now - lastRejoin.current > 5000) {
       lastRejoin.current = now
       console.warn('wave: выпал из партии, вхожу заново', { playerId: stored.id })
       transport.dispatch({ type: 'join', player: stored })
       transport.setIdentity(stored.id)
+      setMeId(stored.id)
     }
   }, [state.players, state.kicked, meId, conn, persistKey, transport])
 
@@ -134,7 +145,8 @@ export const useRoom = (transport: Transport, persistKey: string | null) => {
 
   const a = meId ?? ''
 
-  const actions = {
+  // стабильная ссылка: иначе любой ререндер комнаты обесценивает мемоизацию ниже по дереву
+  const actions = useMemo(() => ({
     join: (name: string, team: TeamId): string => {
       const id = crypto.randomUUID()
       const player: Player = { id, name, team }
@@ -183,7 +195,7 @@ export const useRoom = (transport: Transport, persistKey: string | null) => {
     },
     toLobby: () => d({ type: 'toLobby' }),
     reset: () => d({ type: 'reset' }),
-  }
+  }), [d, a, meId, secret, persistKey, transport])
 
   return { state, conn, me, setMeId, secret, actions }
 }

@@ -1,12 +1,17 @@
 import type { Card } from './game/types.ts'
 
+const CUSTOM_KEY = 'wave_cards'
+const CUSTOM_MAX = 200
+const SIDE_MAX = 40
+export const CARD_SEPARATOR = '|'
+
 // встроенный набор пар противоположностей. левое понятие — правое понятие.
 // телепат может перевернуть карточку, так что порядок не критичен
 export const CARDS: readonly Card[] = [
   ['Холодное', 'Горячее'],
   ['Мокрое', 'Сухое'],
   ['Тихое', 'Громкое'],
-  ['Тяжёлое', 'Лёгкое'],
+  ['Лёгкое', 'Тяжёлое'],
   ['Медленное', 'Быстрое'],
   ['Низкое', 'Высокое'],
   ['Мягкое', 'Твёрдое'],
@@ -14,7 +19,7 @@ export const CARDS: readonly Card[] = [
   ['Гладкое', 'Шершавое'],
   ['Острое', 'Тупое'],
   ['Плохо пахнет', 'Приятно пахнет'],
-  ['Полезное', 'Вредное'],
+  ['Безопасное', 'Опасное'],
   ['Обычное', 'Странное'],
   ['Скучное', 'Интересное'],
   ['Грустное', 'Весёлое'],
@@ -35,7 +40,7 @@ export const CARDS: readonly Card[] = [
   ['Полезный навык', 'Бесполезный навык'],
   ['Детская еда', 'Взрослая еда'],
   ['Лёгкая работа', 'Тяжёлая работа'],
-  ['Переоценённый фильм', 'Недооценённый фильм'],
+  ['Недооценённый фильм', 'Переоценённый фильм'],
   ['Городское', 'Деревенское'],
   ['Формальное', 'Неформальное'],
   ['Романтичное', 'Неромантичное'],
@@ -84,3 +89,41 @@ export const CARDS: readonly Card[] = [
   ['Уютное место', 'Неуютное место'],
   ['Лёгкий характер', 'Тяжёлый характер'],
 ]
+
+// текст набора: одна пара на строку, стороны через «|»
+export const parseDeckText = (text: string): readonly Card[] =>
+  text
+    .split('\n')
+    .map((line) => line.split(CARD_SEPARATOR).map((s) => s.trim().slice(0, SIDE_MAX)))
+    .filter((parts): parts is [string, string] => parts.length === 2 && parts[0] !== '' && parts[1] !== '')
+    .slice(0, CUSTOM_MAX)
+    .map(([l, r]) => [l, r] as Card)
+
+export const deckToText = (cards: readonly Card[]): string =>
+  cards.map((c) => `${c[0]} ${CARD_SEPARATOR} ${c[1]}`).join('\n')
+
+// пользовательский набор живёт в localStorage вкладки: карта раунда выбирается
+// тем, кто его запускает, поэтому свои пары попадают в игру без синхронизации
+export const loadCustomCards = (): readonly Card[] => {
+  try {
+    const raw = localStorage.getItem(CUSTOM_KEY)
+    if (raw === null) return []
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed
+      .filter(
+        (c): c is [string, string] =>
+          Array.isArray(c) && c.length === 2 && typeof c[0] === 'string' && typeof c[1] === 'string',
+      )
+      .slice(0, CUSTOM_MAX)
+      .map(([l, r]) => [l.slice(0, SIDE_MAX), r.slice(0, SIDE_MAX)] as Card)
+  } catch {
+    return []
+  }
+}
+
+export const saveCustomCards = (cards: readonly Card[]): void =>
+  localStorage.setItem(CUSTOM_KEY, JSON.stringify(cards.slice(0, CUSTOM_MAX)))
+
+// колода партии: встроенные пары плюс свои
+export const loadDeck = (): readonly Card[] => [...CARDS, ...loadCustomCards()]

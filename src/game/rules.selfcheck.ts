@@ -6,6 +6,9 @@ import {
   scoreVersusRound,
   keepsTurn,
   checkWinner,
+  randomTarget,
+  TARGET_MAX,
+  TARGET_MIN,
   ZONE,
 } from './rules.ts'
 
@@ -51,6 +54,13 @@ assert.equal(
 // победитель
 assert.equal(checkWinner({ left: 9, right: 7 }), null, 'до 10 нет победителя')
 assert.equal(checkWinner({ left: 10, right: 7 }), 'left')
-assert.equal(checkWinner({ left: 11, right: 11 }), 'tie', 'равенство на вершине — доигрываем')
+assert.equal(checkWinner({ left: 11, right: 11 }), null, 'равенство на вершине — доигрываем')
+assert.equal(checkWinner({ left: 12, right: 11 }), 'left', 'перевес после равенства завершает партию')
+
+// мишень всегда помещается на шкале целиком
+for (let i = 0; i < 200; i++) {
+  const t = randomTarget()
+  assert.ok(t >= TARGET_MIN && t <= TARGET_MAX, `мишень ${t} вне шкалы`)
+}
 
 console.log('rules.selfcheck: OK')

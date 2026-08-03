@@ -1,6 +1,13 @@
 // self-check движка: `node src/game/engine.selfcheck.ts`
 import assert from 'node:assert/strict'
-import { reduce, initialState, nextActiveTeam, teamWithPlayers, type Action } from './engine.ts'
+import {
+  reduce,
+  initialState,
+  nextActiveTeam,
+  teamWithPlayers,
+  MAX_PLAYERS,
+  type Action,
+} from './engine.ts'
 import { TARGET_MAX } from './rules.ts'
 import type { GameState } from './types.ts'
 
@@ -48,6 +55,12 @@ assert.equal(reduce(s, { type: 'reveal', actorId: 'b', target: 50, nonce: 'n' })
 s = reduce(s, { type: 'reveal', actorId: 'a', target: 50, nonce: 'n' })
 assert.deepEqual(s.scores, { left: 4, right: 0 }, 'центр: вторая команда 0')
 assert.equal(s.phase, 'reveal')
+
+// история партии: раунд записан с картой, подсказкой и приростом очков
+assert.equal(s.history.length, 1, 'раунд попал в историю')
+assert.deepEqual(s.history[0].gained, { left: 4, right: 0 })
+assert.equal(s.history[0].clue, 'Кофе')
+assert.equal(s.history[0].roundNo, 1)
 
 // nextRound c дедупом по roundNo
 const rn = s.roundNo
@@ -134,6 +147,35 @@ assert.equal(reduce(k, { type: 'skipRound', seed: { activeTeam: 'left', psychicI
 const lobby = reduce(k, { type: 'toLobby' })
 assert.equal(lobby.phase, 'lobby')
 assert.equal(lobby.round, null)
+
+// --- лимит игроков в комнате ---
+const crowd = run(
+  initialState,
+  Array.from({ length: MAX_PLAYERS + 5 }, (_, i) => ({
+    type: 'join' as const,
+    player: { id: `p${i}`, name: `И${i}`, team: 'left' as const },
+  })),
+)
+assert.equal(crowd.players.length, MAX_PLAYERS, 'join сверх лимита отклонён')
+
+// --- равенство на вершине не заканчивает партию ---
+let draw = run(initialState, [
+  { type: 'join', player: { id: 'a', name: 'А', team: 'left' } },
+  { type: 'join', player: { id: 'b', name: 'Б', team: 'right' } },
+  { type: 'startGame', seed: { activeTeam: 'left', psychicId: 'a', card } },
+])
+draw = { ...draw, scores: { left: 6, right: 10 } }
+draw = run(draw, [
+  { type: 'commitTarget', actorId: 'a', commit: 'h' },
+  { type: 'submitClue', actorId: 'a', clue: 'к' },
+  { type: 'moveNeedle', actorId: 'a', pos: 50 },
+  { type: 'lockNeedle', actorId: 'a' },
+  { type: 'submitSide', actorId: 'b', side: 'LEFT' },
+  { type: 'reveal', actorId: 'a', target: 50, nonce: 'n' },
+])
+assert.deepEqual(draw.scores, { left: 10, right: 10 })
+assert.equal(draw.winner, null, '10:10 — доигрываем')
+assert.equal(draw.phase, 'reveal', 'партия продолжается')
 
 // teamWithPlayers
 assert.equal(teamWithPlayers(k, 'left'), 'left')

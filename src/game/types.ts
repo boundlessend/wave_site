@@ -44,6 +44,19 @@ export type Scores = {
   readonly right: number
 }
 
+// итог сыгранного раунда для истории партии. имя телепата резолвится из players
+// на момент показа: игрок мог выйти, тогда покажем прочерк
+export type RoundResult = {
+  readonly roundNo: number
+  readonly card: Card
+  readonly clue: string
+  readonly target: number
+  readonly needlePos: number
+  readonly activeTeam: TeamId
+  readonly psychicId: string
+  readonly gained: Scores
+}
+
 export type GameState = {
   readonly mode: GameMode
   readonly phase: Phase
@@ -55,5 +68,8 @@ export type GameState = {
   readonly round: Round | null
   readonly roundNo: number // номер раунда; телепат генерирует мишень раз на раунд
   readonly cardsRemaining: number // используется в коопе
-  readonly winner: TeamId | 'tie' | null
+  readonly winner: TeamId | null
+  // сыгранные раунды текущей партии (последние HISTORY_MAX): таблица итогов
+  // и источник недавних карт, чтобы не повторяться
+  readonly history: readonly RoundResult[]
 }

@@ -1,12 +1,16 @@
 // вспомогательные функции с случайностью для запуска раундов (вне редьюсера)
 import type { Card, Player, TeamId } from './types.ts'
-import { CARDS } from '../cards.ts'
+import { randomIndex } from './rules.ts'
 
-// карта раунда: по возможности не та же, что в прошлый раз
-export const pickCard = (avoid: Card | null): Card => {
-  const fresh = avoid === null ? CARDS : CARDS.filter((c) => c[0] !== avoid[0] || c[1] !== avoid[1])
-  const pool = fresh.length > 0 ? fresh : CARDS
-  return pool[Math.floor(Math.random() * pool.length)]
+const cardKey = (c: Card): string => `${c[0]}|${c[1]}`
+
+// карта раунда из пула, минуя уже сыгранные в этой партии;
+// когда пул исчерпан, круг начинается заново
+export const pickCard = (pool: readonly Card[], played: readonly Card[]): Card => {
+  const used = new Set(played.map(cardKey))
+  const fresh = pool.filter((c) => !used.has(cardKey(c)))
+  const arr = fresh.length > 0 ? fresh : pool
+  return arr[randomIndex(arr.length)]
 }
 
 export const teamPlayers = (
@@ -24,5 +28,5 @@ export const pickPsychic = (
   const fresh = pool.filter((p) => p.id !== avoidId)
   const arr = fresh.length > 0 ? fresh : pool
   if (arr.length === 0) return ''
-  return arr[Math.floor(Math.random() * arr.length)].id
+  return arr[randomIndex(arr.length)].id
 }

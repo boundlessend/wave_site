@@ -8,6 +8,8 @@ import type {
   GameState,
   Player,
   Round,
+  RoundResult,
+  Scores,
   Side,
   TeamId,
 } from './types.ts'
@@ -15,6 +17,7 @@ import {
   addScores,
   bandPoints,
   checkWinner,
+  clamp,
   coopPoints,
   keepsTurn,
   otherTeam,
@@ -28,6 +31,10 @@ export const COOP_DECK = 7
 // границы пользовательского ввода на хосте (UI ограничивает, но сеть — нет)
 const MAX_NAME = 20
 const MAX_CLUE = 60
+// потолок комнаты: без него флуд join из сети раздувает state и рассылку
+export const MAX_PLAYERS = 24
+// глубина истории партии: хватает и на таблицу итогов, и на «не повторять карты»
+export const HISTORY_MAX = 30
 const clampText = (s: string, max: number): string => s.slice(0, max)
 
 // зерно нового раунда. БЕЗ мишени: её знает только телепат до раскрытия
@@ -66,6 +73,7 @@ export const initialState: GameState = {
   roundNo: 0,
   cardsRemaining: 0,
   winner: null,
+  history: [],
 }
 
 const teamOf = (state: GameState, id: string): TeamId | null =>
@@ -86,36 +94,59 @@ const startRound = (seed: RoundSeed): Round => ({
 const applyReveal = (
   state: GameState,
   round: Round & { target: number },
-): Pick<GameState, 'scores' | 'cardsRemaining' | 'winner'> => {
+): Pick<GameState, 'scores' | 'cardsRemaining' | 'winner'> & { gained: Scores } => {
   if (state.mode === 'coop') {
     // официальное правило коопа: центр даёт 3 очка (не 4), но добавляет
     // бонусную карту в колоду — игра длится на раунд дольше
     const hitCenter = bandPoints(round.target, round.needlePos) === 4
     const cards = state.cardsRemaining - 1 + (hitCenter ? 1 : 0)
+    const gained: Scores = { left: coopPoints(round.target, round.needlePos), right: 0 }
     return {
-      scores: addScores(state.scores, { left: coopPoints(round.target, round.needlePos), right: 0 }),
+      scores: addScores(state.scores, gained),
       cardsRemaining: cards,
       winner: null,
+      gained,
     }
   }
-  const delta = scoreVersusRound({
+  const gained = scoreVersusRound({
     target: round.target,
     needle: round.needlePos,
     activeTeam: round.activeTeam,
     leftRightGuess: round.leftRightGuess,
   })
-  const scores = addScores(state.scores, delta)
+  const scores = addScores(state.scores, gained)
   return {
     scores,
     cardsRemaining: state.cardsRemaining,
     winner: checkWinner(scores),
+    gained,
   }
+}
+
+// запись раунда в историю партии (хвост ограничен HISTORY_MAX)
+const appendHistory = (
+  state: GameState,
+  round: Round & { target: number },
+  gained: Scores,
+): readonly RoundResult[] => {
+  const entry: RoundResult = {
+    roundNo: state.roundNo,
+    card: round.card,
+    clue: round.clue,
+    target: round.target,
+    needlePos: round.needlePos,
+    activeTeam: round.activeTeam,
+    psychicId: round.psychicId,
+    gained,
+  }
+  return [...state.history.slice(-(HISTORY_MAX - 1)), entry]
 }
 
 export const reduce = (state: GameState, action: Action): GameState => {
   switch (action.type) {
     case 'join': {
       if (state.players.some((p) => p.id === action.player.id)) return state
+      if (state.players.length >= MAX_PLAYERS) return state
       const player = { ...action.player, name: clampText(action.player.name, MAX_NAME) }
       return { ...state, players: [...state.players, player] }
     }
@@ -159,6 +190,7 @@ export const reduce = (state: GameState, action: Action): GameState => {
         scores: { left: 0, right: 0 },
         cardsRemaining: state.mode === 'coop' ? COOP_DECK : 0,
         winner: null,
+        history: [],
         round: startRound(action.seed),
         roundNo: 1,
       }
@@ -190,8 +222,7 @@ export const reduce = (state: GameState, action: Action): GameState => {
       if (!state.round || state.phase !== 'team') return state
       if (teamOf(state, action.actorId) !== state.round.activeTeam) return state
       if (!Number.isFinite(action.pos)) return state
-      const pos = Math.max(0, Math.min(100, action.pos))
-      return { ...state, round: { ...state.round, needlePos: pos } }
+      return { ...state, round: { ...state.round, needlePos: clamp(action.pos, 0, 100) } }
     }
     case 'lockNeedle': {
       if (!state.round || state.phase !== 'team') return state
@@ -217,8 +248,7 @@ export const reduce = (state: GameState, action: Action): GameState => {
       if (action.actorId !== state.round.psychicId) return state
       if (state.round.commit === null) return state
       if (!Number.isFinite(action.target)) return state
-      const target = Math.max(TARGET_MIN, Math.min(TARGET_MAX, action.target))
-      const round = { ...state.round, target }
+      const round = { ...state.round, target: clamp(action.target, TARGET_MIN, TARGET_MAX) }
       const r = applyReveal(state, round)
       return {
         ...state,
@@ -227,6 +257,7 @@ export const reduce = (state: GameState, action: Action): GameState => {
         scores: r.scores,
         cardsRemaining: r.cardsRemaining,
         winner: r.winner,
+        history: appendHistory(state, round, r.gained),
       }
     }
     case 'nextRound': {
